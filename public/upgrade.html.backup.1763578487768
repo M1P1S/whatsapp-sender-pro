@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Upgrade para PRO - WhatsApp Sender</title>
+  <link rel="stylesheet" href="style.css">
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+      margin: 0;
+      padding: 0;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
+      color: white;
+      padding: 50px 20px;
+      text-align: center;
+    }
+
+    .plans {
+      max-width: 900px;
+      margin: 30px auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      padding: 20px;
+    }
+
+    .plan-card {
+      background: white;
+      padding: 25px;
+      border-radius: 15px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+
+    .plan-card h3 {
+      font-size: 1.5em;
+      margin-bottom: 10px;
+    }
+
+    .price {
+      font-size: 2em;
+      margin: 20px 0;
+      color: #25D366;
+      font-weight: bold;
+    }
+
+    .btn-pro {
+      background: #25D366;
+      color: white;
+      padding: 15px 25px;
+      border: none;
+      border-radius: 10px;
+      font-size: 1.1em;
+      cursor: pointer;
+      transition: 0.2s;
+      width: 100%;
+      margin: 5px 0;
+    }
+
+    .btn-pro:hover {
+      transform: scale(1.05);
+    }
+
+    .btn-pix {
+      background: #009EE3;
+    }
+
+    .modal {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+    }
+
+    .modal.show {
+      display: flex;
+    }
+
+    .modal-content {
+      background: white;
+      padding: 25px;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 550px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+
+    #success-message {
+      display: none;
+      text-align: center;
+      padding: 20px;
+      background: #d4edda;
+      color: #155724;
+      border-radius: 10px;
+      max-width: 500px;
+      margin: 20px auto;
+    }
+
+    #success-message.show {
+      display: block;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="hero">
+    <h1>💎 Upgrade para PRO</h1>
+    <p>Desbloqueie envio avançado, agendamentos, mídia, e muito mais.</p>
+  </div>
+
+  <div id="success-message">🎉 Pagamento confirmado! Seu plano PRO foi ativado.</div>
+
+  <div class="plans">
+    <div class="plan-card">
+      <h3>Plano Mensal</h3>
+      <p class="price">R$ 99,90</p>
+      <button class="btn-pro" onclick="initiatePayment('monthly', 'card')">
+        💳 Pagar com Cartão
+      </button>
+      <button class="btn-pro btn-pix" onclick="initiatePayment('monthly', 'pix')">
+        🔑 Pagar com PIX
+      </button>
+    </div>
+
+    <div class="plan-card">
+      <h3>Plano Anual</h3>
+      <p class="price">R$ 999,00</p>
+      <p style="color: #25D366; font-weight: bold;">💰 Economize R$ 199.80!</p>
+      <button class="btn-pro" onclick="initiatePayment('yearly', 'card')">
+        💳 Pagar com Cartão
+      </button>
+      <button class="btn-pro btn-pix" onclick="initiatePayment('yearly', 'pix')">
+        🔑 Pagar com PIX
+      </button>
+    </div>
+  </div>
+
+  <!-- Modal de Upgrade -->
+  <div id="upgrade-modal" class="modal"></div>
+
+  <!-- Script da página -->
+  <script>
+    const API_URL = 'http://localhost:3000';
+    let token = localStorage.getItem('token');
+
+    if (!token) {
+      window.location.href = '/auth.html';
+    }
+
+    // ===== INICIAR PAGAMENTO =====
+    async function initiatePayment(planType, paymentMethod) {
+      try {
+        showLoading('Processando pagamento...');
+        
+        if (paymentMethod === 'card') {
+          await createCardPayment(planType);
+        } else if (paymentMethod === 'pix') {
+          await createPixPayment(planType);
+        }
+        
+        hideLoading();
+      } catch (error) {
+        hideLoading();
+        console.error('Erro ao processar pagamento:', error);
+        alert('❌ Erro ao processar pagamento. Tente novamente.');
+      }
+    }
+
+    // ===== PAGAMENTO COM CARTÃO =====
+    async function createCardPayment(planType) {
+      try {
+        const months = planType === 'yearly' ? 12 : 1;
+        
+        const response = await fetch(`${API_URL}/api/payment/create-preference`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            planType: planType,
+            months: months
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          console.log('✅ Preferência criada:', data.preferenceId);
+          // Redirecionar para página de pagamento do Mercado Pago
+          window.location.href = data.initPoint;
+        } else {
+          throw new Error(data.error || 'Erro ao criar pagamento');
+        }
+      } catch (error) {
+        console.error('Erro ao criar pagamento com cartão:', error);
+        throw error;
+      }
+    }
+
+    // ===== PAGAMENTO COM PIX =====
+    async function createPixPayment(planType) {
+      try {
+        const amount = planType === 'yearly' ? 999.00 : 99.90;
+        
+        const response = await fetch(`${API_URL}/api/payment/create-pix`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            planType: planType,
+            amount: amount
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          console.log('✅ PIX criado:', data.paymentId);
+          showPixModal(data.qrCode, data.qrCodeBase64, data.paymentId);
+        } else {
+          throw new Error(data.error || 'Erro ao criar PIX');
+        }
+      } catch (error) {
+        console.error('Erro ao criar PIX:', error);
+        throw error;
+      }
+    }
+
+    // ===== MODAL PIX =====
+    function showPixModal(qrCode, qrCodeBase64, paymentId) {
+      const modal = document.createElement('div');
+      modal.id = 'pix-modal';
+      modal.className = 'modal show';
+      modal.innerHTML = `
+        <div class="modal-content">
+          <h2 style="text-align: center; color: #333;">🔑 Pagamento via PIX</h2>
+          <p style="text-align: center; color: #666; margin-bottom: 20px;">
+            Escaneie o QR Code com o app do seu banco
+          </p>
+          
+          <img src="data:image/png;base64,${qrCodeBase64}" 
+               style="max-width: 280px; margin: 20px auto; display: block; 
+                      border: 3px solid #009EE3; border-radius: 10px; padding: 10px;">
+          
+          <p style="text-align: center; color: #666; font-size: 14px; margin: 20px 0;">
+            Ou copie o código PIX:
+          </p>
+          
+          <textarea id="pix-code" readonly 
+                    style="width: 100%; height: 100px; padding: 10px; 
+                           border: 2px solid #ddd; border-radius: 8px; 
+                           font-family: monospace; font-size: 12px; 
+                           resize: none; margin-bottom: 15px;">
+${qrCode}
+          </textarea>
+          
+          <button onclick="copyPixCode()" class="btn-pro" style="background: #009EE3;">
+            📋 Copiar Código PIX
+          </button>
+          
+          <button onclick="checkPixPayment('${paymentId}')" class="btn-pro">
+            ✅ Já Paguei - Verificar
+          </button>
+          
+          <button onclick="closePixModal()" class="btn-pro" style="background: #999;">
+            Cancelar
+          </button>
+          
+          <p style="text-align: center; color: #999; font-size: 12px; margin-top: 20px;">
+            ⏱️ O pagamento pode levar alguns minutos para ser confirmado
+          </p>
+        </div>
+      `;
+      
+      document.body.appendChild(modal);
+      
+      // Auto-verificar a cada 10 segundos
+      window.pixCheckInterval = setInterval(() => {
+        checkPixPaymentSilent(paymentId);
+      }, 10000);
+    }
+
+    function closePixModal() {
+      const modal = document.getElementById('pix-modal');
+      if (modal) modal.remove();
+      
+      if (window.pixCheckInterval) {
+        clearInterval(window.pixCheckInterval);
+        window.pixCheckInterval = null;
+      }
+    }
+
+    function copyPixCode() {
+      const pixCode = document.getElementById('pix-code');
+      pixCode.select();
+      document.execCommand('copy');
+      alert('✅ Código PIX copiado!');
+    }
+
+    async function checkPixPayment(paymentId) {
+      try {
+        showLoading('Verificando pagamento...');
+        
+        const response = await fetch(`${API_URL}/api/payment/status/${paymentId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        const data = await response.json();
+        hideLoading();
+        
+        if (data.status === 'approved') {
+          closePixModal();
+          document.getElementById('success-message').classList.add('show');
+          setTimeout(() => {
+            window.location.href = '/dashboard.html';
+          }, 2000);
+        } else if (data.status === 'pending') {
+          alert('⏳ Pagamento ainda pendente. Aguarde alguns minutos...');
+        } else {
+          alert('❌ Pagamento não aprovado. Status: ' + data.statusDetail);
+        }
+      } catch (error) {
+        hideLoading();
+        alert('❌ Erro ao verificar pagamento');
+      }
+    }
+
+    async function checkPixPaymentSilent(paymentId) {
+      try {
+        const response = await fetch(`${API_URL}/api/payment/status/${paymentId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'approved') {
+          closePixModal();
+          document.getElementById('success-message').classList.add('show');
+          setTimeout(() => {
+            window.location.href = '/dashboard.html';
+          }, 2000);
+        }
+      } catch (error) {
+        // Silencioso
+      }
+    }
+
+    // ===== LOADING =====
+    function showLoading(message) {
+      let loader = document.getElementById('custom-loader');
+      if (!loader) {
+        loader = document.createElement('div');
+        loader.id = 'custom-loader';
+        loader.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 99999;';
+        loader.innerHTML = `
+          <div style="background: white; padding: 30px; border-radius: 10px; text-align: center;">
+            <div style="border: 4px solid #f3f3f3; border-top: 4px solid #25D366; 
+                        border-radius: 50%; width: 50px; height: 50px; 
+                        animation: spin 1s linear infinite; margin: 0 auto 20px;"></div>
+            <p style="color: #333; font-size: 16px;">${message}</p>
+          </div>
+        `;
+        document.body.appendChild(loader);
+      }
+    }
+
+    function hideLoading() {
+      const loader = document.getElementById('custom-loader');
+      if (loader) loader.remove();
+    }
+
+    // ===== VERIFICAR RETORNO DO MERCADO PAGO =====
+    window.addEventListener('DOMContentLoaded', () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const paymentStatus = urlParams.get('payment');
+      
+      if (paymentStatus === 'success') {
+        document.getElementById('success-message').classList.add('show');
+        window.history.replaceState({}, document.title, window.location.pathname);
+        setTimeout(() => {
+          window.location.href = '/dashboard.html';
+        }, 2000);
+      } else if (paymentStatus === 'failure') {
+        alert('❌ Pagamento não aprovado. Tente novamente.');
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (paymentStatus === 'pending') {
+        alert('⏳ Pagamento pendente. Aguarde a confirmação.');
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    });
+  </script>
+
+</body>
+</html>

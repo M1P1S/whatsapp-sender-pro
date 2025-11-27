@@ -1,0 +1,1520 @@
+require('dotenv').config();
+
+// Validar variáveis obrigatórias
+const requiredEnvVars = ['JWT_SECRET', 'ASAAS_API_KEY'];
+const missingEnvVars = requiredEnvVars.filter(v => !process.env[v]);
+if (missingEnvVars.length > 0) {
+  console.error('❌ Variáveis obrigatórias não configuradas:', missingEnvVars);
+  console.error('Configure o arquivo .env com:');
+  console.error('- JWT_SECRET');
+  console.error('- ASAAS_API_KEY');
+  console.error('\nObtenha a chave do Asaas em: https://www.asaas.com/configuracoes/api');
+  process.exit(1);
+}
+ 
+/===== TESTE DE VARIÁVEIS DE AMBIENTE =====/
+console.log('\n' + '='.repeat(60));
+console.log('🔍 TESTE DE CONFIGURAÇÃO');
+console.log('='.repeat(60));
+console.log('PORT:', process.env.PORT || '❌ Não encontrado');
+console.log('BASE_URL:', process.env.BASE_URL || '❌ Não encontrado');
+console.log('JWT_SECRET:', process.env.JWT_SECRET ? '✅ Configurado' : '❌ Não encontrado');
+console.log('ASAAS_API_KEY:', process.env.ASAAS_API_KEY ? `✅ ${process.env.ASAAS_API_KEY.substring(0, 20)}...` : '❌ Não encontrado');
+console.log('ASAAS_ENVIRONMENT:', process.env.ASAAS_ENVIRONMENT || 'sandbox');
+console.log('='.repeat(60) + '\n');
+
+const express = require('express');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const cors = require('cors');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const Papa = require('papaparse');
+const XLSX = require('xlsx');
+const session = require('express-session');
+const cookieParser = require('cookie-parser');
+const jwt = require('jsonwebtoken');
+const { connectToWhatsApp, sendMessage, getQRCode, getConnectionStatus, forceLogout } = require('./whatsapp-simple');
+const PDFDocument = require('pdfkit');
+const db = require('./database');
+const paymentService = require('./payment'); 
+const app = express();
+const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET; // MUDE EM PRODUÇÃO!
+const compression = require('compression');
+
+// ===== CONFIGURAÇÃO DE SEGURANÇA (CSP) =====
+app.use((req, res, next) => {
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: https: http:; " +
+    "connect-src 'self' http://localhost:3000 https://api.qrserver.com; " +
+    "font-src 'self'; " +
+    "object-src 'none'; " +
+    "base-uri 'self';"
+  );
+  next();
+});
+
+// Configuração do Multer para upload
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + path.extname(file.originalname));
+  }
+});
+const upload = multer({ storage });
+
+// Middlewares
+
+// ============================================
+// SEGURANÇA - HELMET (VERSÃO CORRIGIDA)
+// ============================================
+// SUBSTITUIR O BLOCO app.use(helmet({...})) por este:
+
+const helmetConfig = process.env.NODE_ENV === 'production' 
+  ? {
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+          styleSrc: ["'self'", "'unsafe-inline'", "https:"],
+          imgSrc: ["'self'", "data:", "https:", "http:"],
+          connectSrc: ["'self'", process.env.BASE_URL || "http://localhost:3000", "https://api.qrserver.com"],
+          fontSrc: ["'self'", "data:"],
+          objectSrc: ["'none'"],
+          mediaSrc: ["'self'"],
+          frameSrc: ["'none'"],
+        },
+      }
+    }
+  : {
+      // Em desenvolvimento, desabilitar CSP
+      contentSecurityPolicy: false
+    };
+
+app.use(helmet(helmetConfig));
+
+// Rate Limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: 'Muitas requisições, tente novamente em 15 minutos.'
+});
+app.use('/api/', limiter);
+
+const isDev = process.env.NODE_ENV !== 'production';
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isDev ? 1000 : 20,
+  message: { 
+    error: 'Muitas tentativas de login. Aguarde 15 minutos.' 
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    const resetTime = req.rateLimit.resetTime;
+    const minutesLeft = Math.ceil((resetTime - Date.now()) / 1000 / 60);
+    
+    res.status(429).json({
+      error: `Muitas tentativas de login. Aguarde ${minutesLeft} minuto(s).`,
+      retryAfter: minutesLeft
+    });
+  }
+});
+
+app.use(cors({ origin: '*', methods: ['GET', 'POST'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+app.use(compression());
+console.log('⚡ Compression ativado');
+app.use(express.json());
+app.use(cookieParser());
+app.use(session({
+  secret: JWT_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24 horas
+}));
+app.use(express.static('public'));
+
+// ============================================
+// [SINGLE-SESSION:API] MODIFICAÇÃO 1: Middleware de autenticação com verificação de sessão
+// ============================================
+async function authenticateToken(req, res, next) {
+  const token = req.headers['authorization']?.split(' ')[1] || req.session.token;
+  
+  if (!token) {
+    return res.status(401).json({ error: 'Token não fornecido', needsAuth: true });
+  }
+
+  try {
+    // Verificar JWT
+    const decoded = jwt.verify(token, JWT_SECRET);
+    
+    // [SINGLE-SESSION:LOGIC] Verificar se sessão está ativa no banco
+    const isActive = await db.isSessionActive(token);
+    
+    if (!isActive) {
+      console.log(`[SINGLE-SESSION] Sessão inválida/desconectada | User: ${decoded.userId}`);
+      return res.status(401).json({ 
+        success: false, 
+        error: 'session_terminated',
+        message: 'Você foi desconectado. Outro dispositivo fez login com esta conta.',
+        disconnected: true
+      });
+    }
+    
+    // [SINGLE-SESSION:LOGIC] Atualizar última atividade
+    await db.updateSessionActivity(token);
+    
+    // Buscar usuário
+    const user = await db.getUserById(decoded.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'Usuário não encontrado', needsAuth: true });
+    }
+    
+    req.user = user;
+    req.sessionToken = token;
+    next();
+  } catch (error) {
+    console.error('[SINGLE-SESSION] Erro na autenticação:', error);
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Token inválido',
+      needsAuth: true,
+      disconnected: error.name === 'TokenExpiredError'
+    });
+  }
+}
+
+// ============================================
+// ROTAS DE PAGAMENTO
+// Adicionar no server/index.js após as rotas de autenticação
+// ============================================
+
+// Criar preferência de pagamento (Cartão de Crédito)
+
+// ============================================
+// VALIDAÇÃO DE SENHA FORTE
+// ============================================
+function validatePassword(password) {
+  if (!password) {
+    return 'Senha é obrigatória';
+  }
+  
+  if (password.length < 8) {
+    return 'Senha deve ter no mínimo 8 caracteres';
+  }
+  
+  if (!/[A-Z]/.test(password)) {
+    return 'Senha deve ter pelo menos 1 letra maiúscula';
+  }
+  
+  if (!/[a-z]/.test(password)) {
+    return 'Senha deve ter pelo menos 1 letra minúscula';
+  }
+  
+  if (!/[0-9]/.test(password)) {
+    return 'Senha deve ter pelo menos 1 número';
+  }
+  
+  if (password.length > 100) {
+    return 'Senha muito longa (máximo 100 caracteres)';
+  }
+  
+  return null; // Senha válida
+}
+
+// ============================================
+// RATE LIMITER INTELIGENTE
+// ============================================
+const isDevelopment = process.env.NODE_ENV !== 'production';
+
+const LIMITS = {
+  development: {
+    login: 1000,
+    register: 1000,
+    windowMs: 15 * 60 * 1000
+  },
+  production: {
+    login: 10,
+    register: 5,
+    windowMs: 15 * 60 * 1000
+  }
+};
+
+const limits = isDevelopment ? LIMITS.development : LIMITS.production;
+
+const rateLimitHandler = (req, res) => {
+  console.log(`⚠️  Rate limit atingido: ${req.ip} → ${req.path}`);
+  
+  res.status(429).json({
+    error: 'Muitas requisições. Aguarde alguns minutos e tente novamente.',
+    retryAfter: Math.ceil(limits.windowMs / 1000 / 60)
+  });
+};
+
+const loginLimiter = rateLimit({
+  windowMs: limits.windowMs,
+  max: limits.login,
+  message: 'Muitas tentativas de login',
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+  skip: (req) => isDevelopment
+});
+
+const registerLimiter = rateLimit({
+  windowMs: limits.windowMs,
+  max: limits.register,
+  message: 'Muitas tentativas de registro',
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+  skip: (req) => isDevelopment
+});
+
+console.log('🔒 Rate Limiter Configurado:');
+console.log(`   Ambiente: ${isDevelopment ? 'DESENVOLVIMENTO' : 'PRODUÇÃO'}`);
+console.log(`   Login: ${limits.login} tentativas / ${limits.windowMs / 60000} min`);
+console.log(`   Registro: ${limits.register} tentativas / ${limits.windowMs / 60000} min`);
+if (isDevelopment) {
+  console.log('   ✅ Modo DEV: Rate limiting DESABILITADO para facilitar testes');
+}
+console.log('');
+app.post('/api/payment/create-preference', authenticateToken, async (req, res) => {
+  try {
+    const { planType, months } = req.body;
+    const userId = req.user.id;
+    
+    console.log(`💳 Criando preferência de pagamento para ${req.user.email}`);
+    
+    const preference = await paymentService.createPaymentPreference(
+      userId,
+      req.user.email,
+      req.user.name || req.user.email,
+      planType,
+      months || (planType === 'yearly' ? 12 : 1)
+    );
+    
+    console.log(`✅ Preferência criada: ${preference.id}`);
+    
+    res.json({
+      success: true,
+      preferenceId: preference.id,
+      initPoint: preference.init_point,
+      sandboxInitPoint: preference.sandbox_init_point
+    });
+  } catch (error) {
+    console.error('❌ Erro ao criar preferência:', error);
+    res.status(500).json({ error: 'Erro ao criar preferência de pagamento' });
+  }
+});
+
+// Criar pagamento PIX
+app.post('/api/payment/create-pix', authenticateToken, async (req, res) => {
+  try {
+    const { planType, amount } = req.body;
+    const userId = req.user.id;
+    
+    console.log(`🔑 Criando pagamento PIX para ${req.user.email}`);
+    
+    const description = planType === 'yearly' 
+      ? 'WhatsApp Sender PRO - Plano Anual' 
+      : 'WhatsApp Sender PRO - Plano Mensal';
+    
+    const pixPayment = await paymentService.createPixPayment(
+      userId,
+      req.user.email,
+      req.user.name || req.user.email,
+      planType,      // ✅ CORRETO - planType primeiro
+      amount         // ✅ CORRETO - amount depois
+    );
+    
+    console.log(`✅ PIX criado: ${pixPayment.paymentId}`);
+    console.log(`📊 QR Code: ${pixPayment.qrCode ? 'OK ✓' : 'FALTANDO ✗'}`);
+    console.log(`📊 QR Code Base64: ${pixPayment.qrCodeBase64 ? 'OK ✓' : 'FALTANDO ✗'}`);
+    
+    res.json({
+      success: true,
+      paymentId: pixPayment.paymentId,
+      qrCode: pixPayment.qrCode,
+      qrCodeBase64: pixPayment.qrCodeBase64,
+      ticketUrl: pixPayment.invoiceUrl
+    });
+  } catch (error) {
+    console.error('❌ Erro ao criar PIX:', error);
+    res.status(500).json({ error: 'Erro ao criar pagamento PIX' });
+  }
+});
+
+// Webhook do Asaas (SEM authenticateToken)
+app.post('/api/payment/webhook', async (req, res) => {
+  try {
+    console.log('📥 Webhook recebido do Asaas');
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+    
+    const result = await paymentService.processWebhook(req.body);
+    
+    if (result.approved) {
+      console.log(`✅ Pagamento aprovado para usuário: ${result.userId}`);
+      
+      // Calcular data de expiração
+      const expiryDate = new Date();
+      expiryDate.setMonth(expiryDate.getMonth() + result.months);
+      
+      // Atualizar usuário para PRO
+      await db.run(
+        `UPDATE users 
+         SET plan = 'PRO', 
+             plan_expires_at = ?,
+             updated_at = CURRENT_TIMESTAMP 
+         WHERE id = ?`,
+        [expiryDate.toISOString(), result.userId]
+      );
+      
+      console.log(`💎 Usuário ${result.userId} atualizado para PRO até ${expiryDate}`);
+    }
+    
+    // Sempre retornar 200 para o Asaas
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('❌ Erro no webhook:', error);
+    // Mesmo com erro, retornar 200 para não retentar
+    res.status(200).json({ error: error.message });
+  }
+});
+
+// Verificar status do pagamento
+app.get('/api/payment/status/:paymentId', authenticateToken, async (req, res) => {
+  try {
+    const { paymentId } = req.params;
+    
+    console.log(`🔍 Verificando status do pagamento: ${paymentId}`);
+    
+    const status = await paymentService.checkPaymentStatus(paymentId);
+    
+    res.json({
+      success: true,
+      status: status.status,
+      statusDetail: status.status_detail,
+      amount: status.transaction_amount
+    });
+  } catch (error) {
+    console.error('❌ Erro ao verificar status:', error);
+    res.status(500).json({ error: 'Erro ao verificar status do pagamento' });
+  }
+});
+
+// Páginas de retorno do Asaas
+app.get('/payment/success', (req, res) => {
+  console.log('✅ Usuário retornou da página de pagamento - SUCESSO');
+  res.redirect('/?payment=success');
+});
+
+app.get('/payment/failure', (req, res) => {
+  console.log('❌ Usuário retornou da página de pagamento - FALHA');
+  res.redirect('/?payment=failure');
+});
+
+app.get('/payment/pending', (req, res) => {
+  console.log('⏳ Usuário retornou da página de pagamento - PENDENTE');
+  res.redirect('/?payment=pending');
+});
+
+// Verificar status premium do usuário
+app.get('/api/user/premium-status', authenticateToken, async (req, res) => {
+  try {
+    const isPremiumActive = req.user.plan === 'PRO' && 
+      new Date(req.user.plan_expires_at) > new Date();
+    
+    // Se expirou, atualizar no banco
+    if (req.user.plan === 'PRO' && !isPremiumActive) {
+      await db.run('UPDATE users SET plan = ? WHERE id = ?', ['FREE', req.user.id]);
+    }
+    
+    res.json({
+      isPremium: isPremiumActive,
+      plan: req.user.plan,
+      expiresAt: req.user.plan_expires_at
+    });
+  } catch (error) {
+    console.error('❌ Erro ao verificar status premium:', error);
+    res.status(500).json({ error: 'Erro ao verificar status premium' });
+  }
+});
+
+// Conectar ao WhatsApp ao iniciar
+console.log('🔄 Iniciando conexão com WhatsApp...');
+connectToWhatsApp();
+
+// ===== WORKER DE AGENDAMENTOS =====
+setInterval(async () => {
+  try {
+    const pendingSchedules = await db.getPendingSchedules();
+    
+    if (pendingSchedules.length > 0) {
+      console.log(`📅 Processando ${pendingSchedules.length} agendamentos pendentes...`);
+    }
+
+    for (const schedule of pendingSchedules) {
+      try {
+        // Marca como processando
+        await db.updateScheduleStatus(schedule.id, 'processing');
+
+        const contacts = JSON.parse(schedule.contacts);
+        const results = [];
+        let successCount = 0;
+        let errorCount = 0;
+
+        for (const contact of contacts) {
+          try {
+            const delay = Math.floor(Math.random() * 2000) + 2000;
+            await new Promise(resolve => setTimeout(resolve, delay));
+            
+            await sendMessage(contact, schedule.message, schedule.media_path, schedule.media_type);
+            results.push({ contact, success: true });
+            successCount++;
+          } catch (error) {
+            results.push({ contact, success: false, error: error.message });
+            errorCount++;
+          }
+        }
+
+        // Atualiza status como concluído
+        await db.updateScheduleStatus(schedule.id, 'sent', new Date().toISOString());
+        
+        // Adiciona ao histórico
+        await db.addToHistory(
+          schedule.user_id,
+          contacts.length,
+          successCount,
+          errorCount,
+          !!schedule.media_path,
+          contacts
+        );
+
+        // Incrementa contador do usuário
+        await db.incrementSends(schedule.user_id, successCount);
+
+        console.log(`✅ Agendamento ${schedule.id} concluído: ${successCount} sucesso, ${errorCount} falhas`);
+      } catch (error) {
+        console.error(`❌ Erro ao processar agendamento ${schedule.id}:`, error);
+        await db.updateScheduleStatus(schedule.id, 'failed', new Date().toISOString());
+      }
+    }
+  } catch (error) {
+    console.error('❌ Erro no worker de agendamentos:', error);
+  }
+}, 30000); // Verifica a cada 30 segundos
+
+// ===== ROTAS DE AUTENTICAÇÃO =====
+
+// Cadastro
+app.post('/api/auth/register', registerLimiter, async (req, res) => {
+  try {
+    const { email, password, name } = req.body;
+    
+    if (!email || !password || !name) {
+      return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
+    }
+    
+    // Verifica se email já existe
+    const existingUser = await db.getUserByEmail(email);
+    if (existingUser) {
+      return res.status(400).json({ error: 'Email já cadastrado' });
+    }
+    
+    const user = await db.createUser(email, password, name);
+    
+    // Cria token
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '24h' });
+    req.session.token = token;
+    
+    console.log(`✅ Novo usuário cadastrado: ${email}`);
+    res.json({ success: true, token, user: { id: user.id, email: user.email, name: user.name, plan: user.plan } });
+  } catch (error) {
+    console.error('❌ Erro no cadastro:', error);
+    res.status(500).json({ error: 'Erro ao cadastrar usuário' });
+  }
+});
+
+// Login
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email e senha são obrigatórios' });
+    }
+    
+    const user = await db.getUserByEmail(email);
+    if (!user) {
+      return res.status(401).json({ error: 'Email ou senha incorretos' });
+    }
+    
+    if (!db.verifyPassword(password, user.password)) {
+      return res.status(401).json({ error: 'Email ou senha incorretos' });
+    }
+    
+    // Cria token
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '24h' });
+    req.session.token = token;
+    
+    // [SINGLE-SESSION:LOGIC] Coletar informações do dispositivo
+    const deviceInfo = req.headers['user-agent'] || 'Unknown Device';
+    const ipAddress = req.ip || req.connection.remoteAddress;
+
+    // [SINGLE-SESSION:LOGIC] Invalidar TODAS as sessões anteriores deste usuário
+    const invalidatedCount = await db.invalidateUserSessions(user.id);
+    
+    if (invalidatedCount > 0) {
+      console.log(`[SINGLE-SESSION] ${invalidatedCount} sessão(ões) anterior(es) invalidada(s) | User: ${user.id}`);
+    }
+
+    // [SINGLE-SESSION:LOGIC] Criar nova sessão
+    await db.createSession(user.id, token, deviceInfo, ipAddress);
+
+    console.log(`[SINGLE-SESSION] Novo login | User: ${email} | IP: ${ipAddress}`);
+    
+    console.log(`✅ Login realizado: ${email}`);
+    res.json({ 
+      success: true, 
+      token, 
+      user: { 
+        id: user.id, 
+        email: user.email, 
+        name: user.name, 
+        plan: user.plan,
+        planExpiresAt: user.plan_expires_at
+      } 
+    });
+  } catch (error) {
+    console.error('❌ Erro no login:', error);
+    res.status(500).json({ error: 'Erro ao fazer login' });
+  }
+});
+
+
+
+// ============================================
+// [SINGLE-SESSION:API] MODIFICAÇÃO 4: Verificar status da sessão
+// ============================================
+app.get('/api/auth/session-status', authenticateToken, async (req, res) => {
+  res.json({ 
+    success: true, 
+    active: true,
+    user: req.user
+  });
+});
+
+// Verificar sessão
+app.get('/api/auth/me', authenticateToken, (req, res) => {
+  res.json({ user: req.user });
+});
+
+// ============================================
+// [SINGLE-SESSION:API] MODIFICAÇÃO 3: Logout com invalidação de sessão
+// ============================================
+app.post('/api/auth/logout', authenticateToken, async (req, res) => {
+  try {
+    await db.logoutSession(req.sessionToken);
+    req.session.destroy();
+    
+    console.log(`[SINGLE-SESSION] Logout | User: ${req.user.id}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Logout realizado com sucesso' 
+    });
+  } catch (error) {
+    console.error('[SINGLE-SESSION] Erro no logout:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erro ao fazer logout' 
+    });
+  }
+});
+
+// ===== ROTAS DE PLANOS =====
+
+// Obter informações do plano
+app.get('/api/plan/info', authenticateToken, async (req, res) => {
+  try {
+    const permission = await db.canSend(req.user.id, 0, false);
+    
+    res.json({
+      plan: req.user.plan,
+      planExpiresAt: req.user.plan_expires_at,
+      todaySends: permission.todaySends || 0,
+      limit: permission.unlimited ? Infinity : (permission.limit || 50),
+      remaining: permission.unlimited ? Infinity : (permission.remaining || 0),
+      canSendMedia: permission.canSendMedia || false,
+      unlimited: permission.unlimited || false
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== ROTAS DE PAGAMENTO =====
+
+//------------------------------------------------------------
+// 🔵 CRIAR PREFERÊNCIA (CARTÃO DE CRÉDITO)
+//------------------------------------------------------------
+app.post('/api/payment/create-preference', authenticateToken, async (req, res) => {
+  try {
+    const { planType, months } = req.body;
+    const userId = req.user.id;
+
+    const preference = await paymentService.createPaymentPreference(
+      userId,
+      req.user.email,
+      req.user.name || req.user.email,
+      planType,
+      months || (planType === 'yearly' ? 12 : 1)
+    );
+
+    res.json({
+      success: true,
+      preferenceId: preference.id,
+      initPoint: preference.init_point,
+      sandboxInitPoint: preference.sandbox_init_point
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao criar preferência de cartão:', error);
+    res.status(500).json({ error: 'Erro ao criar preferência de pagamento' });
+  }
+});
+
+
+//------------------------------------------------------------
+// 🟣 CRIAR PAGAMENTO PIX (QR CODE)
+//------------------------------------------------------------
+app.post('/api/payment/create-pix', authenticateToken, async (req, res) => {
+  try {
+    const { planType } = req.body;
+    const userId = req.user.id;
+
+    const amount = planType === "yearly" ? 999.00 : 99.90;
+    const description = planType === "yearly"
+      ? "WhatsApp Sender PRO - Plano Anual"
+      : "WhatsApp Sender PRO - Plano Mensal";
+
+    const pixPayment = await paymentService.createPixPayment(
+      userId,
+      req.user.email,
+      req.user.name || req.user.email,
+      planType,      // ✅ CORRETO - planType primeiro
+      amount         // ✅ CORRETO - amount depois
+    );
+
+    res.json({
+      success: true,
+      paymentId: pixPayment.id,
+      qrCode: pixPayment.qrCode,
+      qrCodeBase64: pixPayment.qrCodeBase64,
+      ticketUrl: pixPayment.invoiceUrl
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao criar pagamento PIX:', error);
+    res.status(500).json({ error: 'Erro ao criar pagamento PIX' });
+  }
+});
+
+
+//------------------------------------------------------------
+// 🟡 WEBHOOK OFICIAL DO MERCADO PAGO
+//------------------------------------------------------------
+// ⚠ IMPORTANTE: Asaas exige resposta 200 OK SEM DELAY
+app.post('/api/payment/webhook', async (req, res) => {
+  try {
+    console.log("📥 Webhook recebido do Asaas:", req.body);
+
+    // Responde imediatamente para evitar timeout no Asaas
+    res.sendStatus(200);
+
+    const result = await paymentService.processWebhook(req.body);
+
+    if (result.approved) {
+      console.log(`💰 Pagamento aprovado | UserID: ${result.userId} | Meses: ${result.months}`);
+
+      // Calcula expiração PRO
+      const expiryDate = new Date();
+      expiryDate.setMonth(expiryDate.getMonth() + result.months);
+
+      await db.run(
+        `UPDATE users
+         SET plan = 'PRO',
+             plan_expires_at = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [expiryDate.toISOString(), result.userId]
+      );
+
+      console.log(`💎 Usuário atualizado para PRO até ${expiryDate.toISOString()}`);
+    }
+
+  } catch (error) {
+    console.error("❌ Erro no Webhook MP:", error);
+  }
+});
+
+
+//------------------------------------------------------------
+// 🔍 CONSULTAR STATUS DE UM PAGAMENTO
+//------------------------------------------------------------
+app.get('/api/payment/status/:paymentId', authenticateToken, async (req, res) => {
+  try {
+    const status = await paymentService.checkPaymentStatus(req.params.paymentId);
+
+    res.json({
+      success: true,
+      status: status.status,
+      statusDetail: status.status_detail,
+      amount: status.transaction_amount
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao consultar status do pagamento:', error);
+    res.status(500).json({ error: 'Erro ao consultar status do pagamento' });
+  }
+});
+
+// Páginas de retorno
+app.get('/payment/success', (req, res) => {
+  res.redirect('/?payment=success');
+});
+
+app.get('/payment/failure', (req, res) => {
+  res.redirect('/?payment=failure');
+});
+
+app.get('/payment/pending', (req, res) => {
+  res.redirect('/?payment=pending');
+});
+
+// Verificar status premium (atualizado)
+app.get('/api/user/premium-status', authenticateToken, async (req, res) => {
+  try {
+    const isPremiumActive = req.user.plan === 'PRO' && 
+      new Date(req.user.plan_expires_at) > new Date();
+    
+    // Se expirou, atualizar no banco
+    if (req.user.plan === 'PRO' && !isPremiumActive) {
+      await db.run('UPDATE users SET plan = ? WHERE id = ?', ['FREE', req.user.id]);
+    }
+    
+    res.json({
+      isPremium: isPremiumActive,
+      expiresAt: req.user.plan_expires_at,
+      plan: req.user.plan
+    });
+  } catch (error) {
+    console.error('Erro ao verificar status premium:', error);
+    res.status(500).json({ error: 'Erro ao verificar status premium' });
+  }
+});
+
+// Upgrade manual (para testes - remover em produção)
+app.post('/api/plan/upgrade', authenticateToken, async (req, res) => {
+  try {
+    const { months = 1 } = req.body;
+    await db.upgradeToPro(req.user.id, months);
+    console.log(`💎 Upgrade manual para PRO: ${req.user.email}`);
+    res.json({ success: true, message: 'Upgrade realizado com sucesso!' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// 🔧 CORREÇÕES: ADICIONAR NO server/index.js
+// Local: Junto com as outras rotas (linha ~600-800)
+// ============================================
+
+// ============================================
+// 🔧 CORREÇÃO 1 e 4: Status do WhatsApp
+// ============================================
+app.get('/api/whatsapp/status', authenticateToken, async (req, res) => {
+  try {
+    const connected = getConnectionStatus();
+    
+    res.json({
+      status: connected ? 'connected' : 'disconnected',
+      connected: connected
+    });
+  } catch (error) {
+    console.error('❌ Erro ao verificar status:', error);
+    res.status(500).json({ 
+      status: 'error',
+      connected: false,
+      error: 'Erro ao verificar status' 
+    });
+  }
+});
+
+// Cancelar/Deletar agendamento
+
+app.delete('/api/schedules/:id', authenticateToken, async (req, res) => {
+  try {
+    const scheduleId = req.params.id;
+    const userId = req.user.id;
+    
+    console.log(`🗑️ Cancelando agendamento ${scheduleId} do usuário ${userId}`);
+    
+    await db.cancelSchedule(scheduleId, userId);
+    
+    console.log(`✅ Agendamento ${scheduleId} cancelado com sucesso`);
+    
+    res.json({ 
+      success: true,
+      message: 'Agendamento cancelado com sucesso'
+    });
+  } catch (error) {
+    console.error('❌ Erro ao cancelar agendamento:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Erro ao cancelar agendamento' 
+    });
+  }
+});
+
+// ITEM 3: ROTA EXPORTAR PDF 
+
+app.get('/api/reports/pdf', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  
+  try {
+    console.log(`📄 Item 3: Gerando PDF para usuário ${userId}...`);
+    
+    // Buscar dados do usuário
+    const user = await db.getUserById(userId);
+    
+    // Verificar se é PRO
+    if (user.plan !== 'PRO') {
+      return res.status(403).json({
+        success: false,
+        error: 'Exportação de PDF é exclusiva do plano PRO'
+      });
+    }
+    
+    // Buscar histórico e agendamentos
+    const history = await db.getUserHistory(userId, 100);
+    const schedules = await db.getUserSchedules(userId, 50);
+    
+    // Criar documento PDF
+    const doc = new PDFDocument({ 
+      size: 'A4', 
+      margin: 50 
+    });
+    
+    // Configurar headers HTTP
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=relatorio-${Date.now()}.pdf`);
+    
+    // Pipe para response
+    doc.pipe(res);
+    
+    // ========================================
+    // CONTEÚDO DO PDF
+    // ========================================
+    
+    // TÍTULO
+    doc.fontSize(24)
+       .font('Helvetica-Bold')
+       .text('📊 Relatório de Envios', { align: 'center' });
+    
+    doc.moveDown();
+    
+    // INFORMAÇÕES DO USUÁRIO
+    doc.fontSize(12)
+       .font('Helvetica')
+       .text(`Usuário: ${user.name}`, 50, 120)
+       .text(`Email: ${user.email}`)
+       .text(`Plano: ${user.plan}`)
+       .text(`Data do relatório: ${new Date().toLocaleString('pt-BR')}`);
+    
+    doc.moveDown(2);
+    
+    // LINHA DIVISÓRIA
+    doc.moveTo(50, doc.y)
+       .lineTo(550, doc.y)
+       .stroke();
+    
+    doc.moveDown();
+    
+    // ESTATÍSTICAS GERAIS
+    doc.fontSize(16)
+       .font('Helvetica-Bold')
+       .text('📈 Estatísticas Gerais');
+    
+    doc.moveDown(0.5);
+    
+    const totalEnvios = history.length;
+    const totalContatos = history.reduce((sum, h) => sum + h.contacts_count, 0);
+    const totalSucesso = history.reduce((sum, h) => sum + h.success_count, 0);
+    const totalFalhas = history.reduce((sum, h) => sum + h.failed_count, 0);
+    
+    doc.fontSize(11)
+       .font('Helvetica')
+       .text(`Total de envios realizados: ${totalEnvios}`)
+       .text(`Total de contatos: ${totalContatos}`)
+       .text(`Mensagens enviadas com sucesso: ${totalSucesso}`)
+       .text(`Mensagens com falha: ${totalFalhas}`);
+    
+    if (totalContatos > 0) {
+      const taxaSucesso = ((totalSucesso / totalContatos) * 100).toFixed(1);
+      doc.text(`Taxa de sucesso: ${taxaSucesso}%`);
+    }
+    
+    doc.moveDown(2);
+    
+    // HISTÓRICO DE ENVIOS
+    doc.fontSize(16)
+       .font('Helvetica-Bold')
+       .text('📋 Histórico de Envios (Últimos 50)');
+    
+    doc.moveDown(0.5);
+    
+    if (history.length === 0) {
+      doc.fontSize(11)
+         .font('Helvetica')
+         .text('Nenhum envio encontrado.');
+    } else {
+      doc.fontSize(9);
+      
+      const historyToShow = history.slice(0, 50);
+      
+      historyToShow.forEach((item, index) => {
+        const date = new Date(item.created_at).toLocaleString('pt-BR');
+        const mediaIcon = item.has_media ? '📎' : '';
+        
+        doc.font('Helvetica-Bold')
+           .text(`${index + 1}. ${date} ${mediaIcon}`);
+        
+        doc.font('Helvetica')
+           .text(`   Contatos: ${item.contacts_count} | Sucesso: ${item.success_count} | Falhas: ${item.failed_count}`);
+        
+        
+        // 🆕 Adicionar lista de contatos se existir
+        if (item.contacts) {
+          try {
+            const contacts = JSON.parse(item.contacts);
+            if (contacts.length > 0) {
+              const contactsPreview = contacts.slice(0, 5).join(', ');
+              const moreContacts = contacts.length > 5 ? ` e mais ${contacts.length - 5}...` : '';
+              
+              doc.fontSize(8)
+                 .text(`   📞 ${contactsPreview}${moreContacts}`);
+              
+              doc.fontSize(9);
+            }
+          } catch (e) {
+            // Ignorar erro de parse
+          }
+        }
+        doc.moveDown(0.3);
+        
+        // Nova página se necessário
+        if (doc.y > 700) {
+          doc.addPage();
+          doc.fontSize(9);
+        }
+      });
+    }
+    
+    // AGENDAMENTOS (se houver)
+    if (schedules.length > 0) {
+      doc.addPage();
+      
+      doc.fontSize(16)
+         .font('Helvetica-Bold')
+         .text('📅 Agendamentos');
+      
+      doc.moveDown(0.5);
+      doc.fontSize(9);
+      
+      schedules.slice(0, 30).forEach((schedule, index) => {
+        const date = new Date(schedule.scheduled_date).toLocaleString('pt-BR');
+        const statusIcon = schedule.status === 'sent' ? '✅' : 
+                          schedule.status === 'failed' ? '❌' : 
+                          schedule.status === 'cancelled' ? '🚫' : '⏰';
+        
+        let contactsCount = 0;
+        try {
+          const contacts = JSON.parse(schedule.contacts);
+          contactsCount = Array.isArray(contacts) ? contacts.length : 0;
+        } catch (e) {
+          contactsCount = '?';
+        }
+        
+        doc.font('Helvetica-Bold')
+           .text(`${index + 1}. ${date} ${statusIcon}`);
+        
+        doc.font('Helvetica')
+           .text(`   Contatos: ${contactsCount} | Status: ${schedule.status}`);
+        
+        doc.moveDown(0.3);
+        
+        if (doc.y > 700) {
+          doc.addPage();
+          doc.fontSize(9);
+        }
+      });
+    }
+    
+    // RODAPÉ
+    doc.fontSize(8)
+       .font('Helvetica')
+       .text(
+         'Relatório gerado pelo WhatsApp Sender PRO',
+         50,
+         750,
+         { align: 'center' }
+       );
+    
+    // Finalizar PDF
+    doc.end();
+    
+    console.log('✅ Item 3: PDF gerado com sucesso');
+    
+  } catch (error) {
+    console.error('❌ Item 3 erro ao gerar PDF:', error);
+    
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        error: 'Erro ao gerar relatório PDF'
+      });
+    }
+  }
+});
+
+
+// ===== ROTA: EXPORTAR CSV =====
+app.get('/api/reports/csv', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  
+  try {
+    console.log(`📊 Gerando CSV para usuário ${userId}...`);
+    
+    const user = await db.getUserById(userId);
+    
+    if (user.plan !== 'PRO') {
+      return res.status(403).json({
+        success: false,
+        error: 'Exportação de CSV é exclusiva do plano PRO'
+      });
+    }
+    
+    const history = await db.getUserHistory(userId, 1000);
+    
+    let csv = 'Data/Hora,Total Contatos,Sucesso,Falhas,Mídia,Contatos\n';
+    
+    history.forEach(item => {
+      const utcDate = new Date(item.created_at);
+      const brtDate = new Date(utcDate.getTime() - (3 * 60 * 60 * 1000));
+      const date = brtDate.toLocaleString('pt-BR');
+      
+      const hasMedia = item.has_media ? 'Sim' : 'Não';
+      
+      let contactsList = '';
+      if (item.contacts) {
+        try {
+          const contacts = JSON.parse(item.contacts);
+          contactsList = contacts.join('; ');
+        } catch (e) {
+          contactsList = '';
+        }
+      }
+      
+      const escapedContacts = contactsList.replace(/"/g, '""');
+      csv += `"${date}",${item.contacts_count},${item.success_count},${item.failed_count},"${hasMedia}","${escapedContacts}"\n`;
+    });
+    
+    // Adicionar BOM para Excel reconhecer UTF-8
+    const csvWithBOM = '\uFEFF' + csv;
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename=relatorio-${Date.now()}.csv`);
+    res.send(csvWithBOM);
+    
+    console.log('✅ CSV gerado com sucesso');
+    
+  } catch (error) {
+    console.error('❌ Erro ao gerar CSV:', error);
+    
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        error: 'Erro ao gerar relatório CSV'
+      });
+    }
+  }
+});
+
+// ===== ROTAS DO WHATSAPP (PROTEGIDAS) =====
+
+// QR Code
+app.get('/api/qrcode', authenticateToken, (req, res) => {
+  try {
+    const qr = getQRCode();
+    const connected = getConnectionStatus();
+    res.json({ qrCode: qr, connected });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Status
+app.get('/api/status', authenticateToken, (req, res) => {
+  try {
+    const connected = getConnectionStatus();
+    res.json({ connected });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Desconectar WhatsApp
+app.post('/api/disconnect', authenticateToken, async (req, res) => {
+  try {
+    console.log(`🔌 ${req.user.email} solicitou desconexão`);
+    const success = await forceLogout();
+    
+    if (success) {
+      // Aguarda 3 segundos e reconecta automaticamente
+      setTimeout(() => {
+        console.log('🔄 Reiniciando WhatsApp para novo QR Code...');
+        connectToWhatsApp();
+      }, 3000);
+    }
+    
+    res.json({ success });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Upload de contatos
+app.post('/api/upload-contacts', authenticateToken, upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+    }
+
+    const filePath = req.file.path;
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    let contacts = [];
+
+    if (ext === '.csv' || ext === '.txt') {
+      const fileContent = fs.readFileSync(filePath, 'utf8');
+      const parsed = Papa.parse(fileContent, { 
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (header) => header.trim().toLowerCase()
+      });
+      
+      contacts = parsed.data.map(row => {
+        const possibleKeys = ['phone', 'telefone', 'numero', 'number', 'whatsapp', 'contato', 'celular', 'fone'];
+        let value = null;
+        
+        for (const key of possibleKeys) {
+          if (row[key]) {
+            value = row[key];
+            break;
+          }
+        }
+        
+        if (!value) {
+          value = Object.values(row).find(v => v && String(v).trim());
+        }
+        
+        if (!value) return null;
+        
+        let numberStr = String(value);
+        if (numberStr.includes('E+') || numberStr.includes('e+')) {
+          try {
+            numberStr = numberStr.replace(',', '.');
+            const num = parseFloat(numberStr);
+            numberStr = num.toFixed(0);
+          } catch (e) {
+            console.warn('⚠️  Erro ao converter:', value);
+          }
+        }
+        
+        return numberStr;
+      }).filter(Boolean);
+    } else if (ext === '.xlsx' || ext === '.xls') {
+      const workbook = XLSX.readFile(filePath);
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const data = XLSX.utils.sheet_to_json(worksheet, { raw: false, defval: '' });
+      
+      contacts = data.map(row => {
+        const possibleKeys = ['phone', 'telefone', 'numero', 'number', 'whatsapp', 'contato', 'celular', 'fone'];
+        let value = null;
+        
+        for (const key of possibleKeys) {
+          const foundKey = Object.keys(row).find(k => k.toLowerCase() === key);
+          if (foundKey && row[foundKey]) {
+            value = row[foundKey];
+            break;
+          }
+        }
+        
+        if (!value) {
+          value = Object.values(row).find(v => v && String(v).trim());
+        }
+        
+        if (!value) return null;
+        
+        let numberStr = String(value);
+        if (numberStr.includes('E+') || numberStr.includes('e+')) {
+          try {
+            numberStr = numberStr.replace(',', '.');
+            const num = parseFloat(numberStr);
+            numberStr = num.toFixed(0);
+          } catch (e) {
+            console.warn('⚠️  Erro ao converter:', value);
+          }
+        }
+        
+        return numberStr;
+      }).filter(Boolean);
+    }
+
+    contacts = contacts.map(c => String(c).replace(/\D/g, '')).filter(c => c.length >= 10);
+    fs.unlinkSync(filePath);
+
+    console.log(`✅ ${contacts.length} contatos carregados por ${req.user.email}`);
+    res.json({ success: true, contacts });
+  } catch (error) {
+    console.error('❌ Erro ao processar contatos:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Enviar mensagens
+app.post('/api/send', authenticateToken, upload.single('media'), async (req, res) => {
+  try {
+    if (!req.body.contacts || !req.body.message) {
+      return res.status(400).json({ error: 'Contatos e mensagem são obrigatórios' });
+    }
+
+    const { contacts, message, minInterval = 2, maxInterval = 4 } = req.body;
+    const contactList = JSON.parse(contacts);
+    const mediaPath = req.file ? req.file.path : null;
+    const hasMedia = !!mediaPath;
+
+    // Converte intervalos para números
+    const min = parseInt(minInterval) * 1000; // Converte para ms
+    const max = parseInt(maxInterval) * 1000;
+
+    // Detecta tipo de mídia
+    let mediaType = null;
+    if (mediaPath) {
+      const mimeType = req.file.mimetype.toLowerCase();
+      if (mimeType.includes('image')) mediaType = 'image';
+      else if (mimeType.includes('video')) mediaType = 'video';
+      else if (mimeType.includes('audio')) mediaType = 'audio';
+      else mediaType = 'document';
+      
+      console.log(`📎 Mídia: ${mimeType} -> ${mediaType} (${(req.file.size / 1024 / 1024).toFixed(2)}MB)`);
+    }
+
+    const permission = await db.canSend(req.user.id, contactList.length, hasMedia);
+    
+    if (!permission.allowed) {
+      if (mediaPath) fs.unlinkSync(mediaPath);
+      return res.status(403).json({ 
+        error: permission.message || `Limite atingido. Restam ${permission.remaining} mensagens hoje.`,
+        needsUpgrade: permission.plan === 'FREE' && hasMedia,
+        remaining: permission.remaining
+      });
+    }
+
+    const results = [];
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const contact of contactList) {
+      try {
+        // Intervalo configurável pelo usuário
+        const delay = Math.floor(Math.random() * (max - min + 1)) + min;
+        console.log(`⏱️  Aguardando ${delay/1000}s antes do próximo envio...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        
+        await sendMessage(contact, message, mediaPath, mediaType);
+        results.push({ contact, success: true });
+        successCount++;
+      } catch (error) {
+        results.push({ contact, success: false, error: error.message });
+        errorCount++;
+        console.error(`❌ Falha no envio para ${contact}:`, error.message);
+      }
+    }
+
+    if (mediaPath && fs.existsSync(mediaPath)) {
+      fs.unlinkSync(mediaPath);
+    }
+
+    await db.incrementSends(req.user.id, successCount);
+    await db.addToHistory(req.user.id, contactList.length, successCount, errorCount, hasMedia, contactList);
+
+    console.log(`📊 ${req.user.email}: ${successCount} enviados, ${errorCount} falhas`);
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error('❌ Erro no envio:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Histórico
+app.get('/api/history', authenticateToken, async (req, res) => {
+  try {
+    const history = await db.getUserHistory(req.user.id, 20);
+    res.json({ history });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Testar número individual
+app.post('/api/test-number', authenticateToken, async (req, res) => {
+  try {
+    const { number } = req.body;
+    
+    if (!number) {
+      return res.status(400).json({ error: 'Número é obrigatório' });
+    }
+    
+    const { checkNumberExists } = require('./whatsapp-simple');
+    const cleaned = String(number).replace(/\D/g, '');
+    const exists = await checkNumberExists(cleaned);
+    
+    res.json({ 
+      number,
+      exists,
+      formatted: cleaned
+    });
+  } catch (error) {
+    console.error('Erro ao testar número:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== ROTAS DE AGENDAMENTO (PRO) =====
+
+// Criar agendamento
+app.post('/api/schedule', authenticateToken, upload.single('media'), async (req, res) => {
+  try {
+    // Verifica se é PRO
+    if (req.user.plan !== 'PRO') {
+      return res.status(403).json({ error: 'Agendamento disponível apenas no plano PRO' });
+    }
+
+    const { contacts, message, scheduledDate } = req.body;
+    
+    if (!contacts || !message || !scheduledDate) {
+      return res.status(400).json({ error: 'Dados incompletos' });
+    }
+
+    const contactList = JSON.parse(contacts);
+    const mediaPath = req.file ? req.file.path : null;
+    const mediaType = req.file ? (req.file.mimetype.startsWith('image') ? 'image' : 'video') : null;
+
+    const schedule = await db.createSchedule(
+      req.user.id,
+      contactList,
+      message,
+      mediaPath,
+      mediaType,
+      scheduledDate
+    );
+
+    console.log(`📅 Agendamento criado: ID ${schedule.id} para ${scheduledDate}`);
+    res.json({ success: true, scheduleId: schedule.id });
+  } catch (error) {
+    console.error('❌ Erro ao criar agendamento:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Listar agendamentos do usuário
+app.get('/api/schedules', authenticateToken, async (req, res) => {
+  try {
+    const schedules = await db.getUserSchedules(req.user.id, 50);
+    res.json({ schedules });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Cancelar agendamento
+app.delete('/api/schedule/:id', authenticateToken, async (req, res) => {
+  try {
+    await db.cancelSchedule(req.params.id, req.user.id);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString()
+  });
+});
+
+
+// ============================================
+// [SINGLE-SESSION:LOGIC] MODIFICAÇÃO 5: Limpeza automática de sessões antigas
+// ============================================
+setInterval(async () => {
+  try {
+    const cleaned = await db.cleanOldSessions();
+    if (cleaned > 0) {
+      console.log(`[SINGLE-SESSION] ${cleaned} sessão(ões) antiga(s) limpa(s)`);
+    }
+  } catch (error) {
+    console.error('[SINGLE-SESSION] Erro ao limpar sessões:', error);
+  }
+}, 60 * 60 * 1000); // 1 hora
+
+// Executar limpeza inicial após 5 segundos
+setTimeout(async () => {
+  try {
+    await db.cleanOldSessions();
+  } catch (error) {
+    console.error('[SINGLE-SESSION] Erro na limpeza inicial:', error);
+  }
+}, 5000);
+
+// Iniciar servidor
+app.listen(PORT, () => {
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
+  console.log(`📱 Acesse no navegador: http://localhost:${PORT}`);
+  console.log(`${'='.repeat(60)}\n`);
+});
+
+process.on('SIGINT', () => {
+  console.log('\n👋 Encerrando servidor...');
+  process.exit(0);
+});

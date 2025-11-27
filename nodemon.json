@@ -1,0 +1,10 @@
+{
+  "watch": ["server"],
+  "ignore": [
+    "node_modules",
+    "auth_info",
+    "public",
+    "server/uploads"
+  ],
+  "ext": "js,json"
+}
