@@ -1,5 +1,5 @@
+const API_URL = 'https://whatsapp-sender.duckdns.org';
 let contacts = [];
-const API_URL = 'http://localhost:3000';
 let retryCount = 0;
 const MAX_RETRIES = 3;
 let token = localStorage.getItem('token');

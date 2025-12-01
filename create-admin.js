@@ -82,7 +82,7 @@ db.get('SELECT id FROM users WHERE email = ?', [adminData.email], (err, row) => 
         console.log(`ID: ${this.lastID}`);
         console.log('='.repeat(60));
         console.log('\n💡 Use essas credenciais para fazer login em:');
-        console.log('   http://localhost:3000/auth.html');
+        console.log('   /auth.html');
         console.log('\n');
 
         db.close();

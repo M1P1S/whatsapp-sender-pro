@@ -41,8 +41,6 @@ const PDFDocument = require('pdfkit');
 const db = require('./database');
 const paymentService = require('./payment'); 
 const app = express();
-app.set('trust proxy', 1);
-app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET; // MUDE EM PRODUÇÃO!
 const compression = require('compression');
@@ -55,7 +53,7 @@ app.use((req, res, next) => {
     "script-src 'self' 'unsafe-inline'; " +
     "style-src 'self' 'unsafe-inline'; " +
     "img-src 'self' data: https: http:; " +
-    "connect-src 'self'  ; " +
+    "connect-src 'self' http://localhost:3000 https://api.qrserver.com; " +
     "font-src 'self'; " +
     "object-src 'none'; " +
     "base-uri 'self';"
@@ -85,12 +83,28 @@ const upload = multer({ storage });
 // ============================================
 // SUBSTITUIR O BLOCO app.use(helmet({...})) por este:
 
-const helmetConfig = {
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false
-};
+const helmetConfig = process.env.NODE_ENV === 'production' 
+  ? {
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+          styleSrc: ["'self'", "'unsafe-inline'", "https:"],
+          imgSrc: ["'self'", "data:", "https:", "http:"],
+          connectSrc: ["'self'", process.env.BASE_URL || "http://localhost:3000", "https://api.qrserver.com"],
+          fontSrc: ["'self'", "data:"],
+          objectSrc: ["'none'"],
+          mediaSrc: ["'self'"],
+          frameSrc: ["'none'"],
+        },
+      }
+    }
+  : {
+      // Em desenvolvimento, desabilitar CSP
+      contentSecurityPolicy: false
+    };
 
-// // app.use(helmet(helmetConfig)); // DESABILITADO // DESABILITADO
+app.use(helmet(helmetConfig));
 
 // Rate Limiting
 const limiter = rateLimit({

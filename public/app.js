@@ -1,5 +1,6 @@
+const API_URL = 'https://whatsapp-sender.duckdns.org';
 let contacts = [];
-const API_URL = 'http://localhost:3000';
+const API_URL = '';
 let retryCount = 0;
 const MAX_RETRIES = 3;
 
@@ -81,7 +82,7 @@ async function loadQRCode() {
     if (data.qrCode) {
       qrContainer.innerHTML = `
         <div>
-          <img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(data.qrCode)}" alt="QR Code">
+          <img src="/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(data.qrCode)}" alt="QR Code">
           <p style="margin-top: 15px; font-size: 1.1em;">📱 Escaneie com o WhatsApp</p>
           <p style="color: #666; font-size: 0.9em;">Abra o WhatsApp → Menu (⋮) → Aparelhos conectados → Conectar um aparelho</p>
         </div>
