@@ -295,7 +295,7 @@
     <div class="section"
       style="background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-top:30px;">
       <h2 style="margin-bottom: 20px;">📤 Enviar Mensagens</h2>
-      <button onclick="window.location.href='/index.html'" class="btn-upgrade"
+      <button id="go-to-send-system" class="btn-upgrade"
         style="background:#128C7E; border-radius:8px;">
         Ir para Sistema de Envio
       </button>
@@ -828,6 +828,12 @@
   </script>
 
   <!-- [SINGLE-SESSION:UI] Sistema de verificação de sessão única -->
+  <script>
+    document.getElementById("go-to-send-system")?.addEventListener("click", function() {
+      console.log("Indo para sistema de envio...");
+      window.location.href = "/index.html";
+    });
+  </script>
   <script src="/js/session-checker.js"></script>
 </body>
 

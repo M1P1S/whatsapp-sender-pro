@@ -95,7 +95,7 @@ const helmetConfig = {
 // Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 15000,
+  max: 100,
   message: 'Muitas requisições, tente novamente em 15 minutos.'
 });
 app.use('/api/', limiter);
@@ -523,7 +523,7 @@ setInterval(async () => {
 // Cadastro
 app.post('/api/auth/register', registerLimiter, async (req, res) => {
   try {
-    const { email, password, name, cpf } = req.body;
+    const { email, password, name } = req.body;
     
     if (!email || !password || !name) {
       return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
@@ -535,7 +535,7 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Email já cadastrado' });
     }
     
-    const user = await db.createUser(email, password, name, cpf);
+    const user = await db.createUser(email, password, name);
     
     // Cria token
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '24h' });

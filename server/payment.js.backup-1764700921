@@ -41,9 +41,8 @@ async function getOrCreateCustomer(userEmail, userName, userId) {
     console.log(`🔍 Buscando/Criando cliente: ${userEmail}`);
     
     // CPF de teste para sandbox
-    const db = require("./database");
-    const userFromDb = await db.getUserById(userId);
-    const cpfTeste = userFromDb?.cpf || "00000000000";
+    const cpfTeste = ASAAS_ENVIRONMENT === 'sandbox' ? '24971563792' : '';
+    
     const searchResponse = await asaasClient.get('/customers', {
       params: { email: userEmail }
     });
@@ -192,8 +191,7 @@ async function generatePixQRCode(paymentId) {
     console.log(`📊 Billing Type: ${checkPayment.data.billingType}`);
     console.log(`📊 Dados completos:`, JSON.stringify(checkPayment.data, null, 2));
     
-    
-const response = await asaasClient.get(`/payments/${paymentId}/pixQrCode`);
+    const response = await asaasClient.get(`/payments/${paymentId}/pixQrCode`);
     console.log('✅ QR Code PIX gerado');
 
     return {

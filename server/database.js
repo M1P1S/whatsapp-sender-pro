@@ -128,13 +128,13 @@ function migrateDatabase() {
 // ===== FUNÇÕES DE USUÁRIO =====
 
 // Criar usuário
-async function createUser(email, password, name) {
+async function createUser(email, password, name, cpf) {
   return new Promise((resolve, reject) => {
     const hashedPassword = bcrypt.hashSync(password, 10);
     
     db.run(
-      'INSERT INTO users (email, password, name, plan) VALUES (?, ?, ?, ?)',
-      [email, hashedPassword, name, 'FREE'],
+      'INSERT INTO users (email, password, name, plan, cpf) VALUES (?, ?, ?, ?, ?)',
+      [email, hashedPassword, name, 'FREE', cpf],
       function(err) {
         if (err) {
           reject(err);
@@ -159,7 +159,7 @@ async function getUserByEmail(email) {
 // Buscar usuário por ID
 async function getUserById(id) {
   return new Promise((resolve, reject) => {
-    db.get('SELECT id, email, name, plan, plan_expires_at FROM users WHERE id = ?', [id], (err, row) => {
+    db.get('SELECT id, email, name, plan, plan_expires_at, cpf FROM users WHERE id = ?', [id], (err, row) => {
       if (err) reject(err);
       else resolve(row);
     });

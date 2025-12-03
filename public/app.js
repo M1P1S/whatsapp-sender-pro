@@ -1,7 +1,5 @@
 const API_URL = 'https://whatsapp-sender.duckdns.org';
 let contacts = [];
-const API_URL = '';
-let retryCount = 0;
 const MAX_RETRIES = 3;
 
 // Verificar conexão do WhatsApp com retry
@@ -70,7 +68,7 @@ async function checkConnection() {
 // Carregar QR Code com melhor tratamento de erro
 async function loadQRCode() {
   try {
-    const response = await fetch(`${API_URL}/api/qrcode`);
+    const response = await fetch(`${API_URL}/api/whatsapp/qrcode`);
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
