@@ -93,6 +93,29 @@ function initDatabase() {
     }
   });
 
+  // ============================================
+  // [MULTI-SESSION:WHATSAPP] Tabela de sessões do WhatsApp
+  // ============================================
+  db.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER UNIQUE NOT NULL,
+      whatsapp_number TEXT,
+      whatsapp_name TEXT,
+      status TEXT DEFAULT 'disconnected',
+      last_connection DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `, (err) => {
+    if (err) {
+      console.error('❌ Erro ao criar tabela whatsapp_sessions:', err);
+    } else {
+      console.log('✅ Tabela whatsapp_sessions criada/verificada');
+    }
+  });
+
   // 🔧 EXECUTAR MIGRAÇÃO após criar tabelas
   setTimeout(() => {
     migrateDatabase();
@@ -550,6 +573,113 @@ async function cleanOldSessions() {
 }
 
 // ============================================
+// [MULTI-SESSION:WHATSAPP] FUNÇÕES DE SESSÃO DO WHATSAPP
+// ============================================
+
+// Salvar/atualizar sessão do WhatsApp
+async function saveWhatsAppSession(userId, whatsappNumber, whatsappName, status) {
+  return new Promise((resolve, reject) => {
+    const now = new Date().toISOString();
+
+    db.run(
+      `INSERT INTO whatsapp_sessions (user_id, whatsapp_number, whatsapp_name, status, last_connection, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         whatsapp_number = excluded.whatsapp_number,
+         whatsapp_name = excluded.whatsapp_name,
+         status = excluded.status,
+         last_connection = excluded.last_connection,
+         updated_at = excluded.updated_at`,
+      [userId, whatsappNumber, whatsappName, status, now, now],
+      function(err) {
+        if (err) {
+          console.error('[MULTI-SESSION:DB] Erro ao salvar sessão WhatsApp:', err);
+          reject(err);
+        } else {
+          console.log(`[MULTI-SESSION:DB] Sessão WhatsApp salva | User: ${userId}`);
+          resolve({ id: this.lastID });
+        }
+      }
+    );
+  });
+}
+
+// Obter sessão do WhatsApp por usuário
+async function getWhatsAppSession(userId) {
+  return new Promise((resolve, reject) => {
+    db.get(
+      'SELECT * FROM whatsapp_sessions WHERE user_id = ?',
+      [userId],
+      (err, row) => {
+        if (err) {
+          console.error('[MULTI-SESSION:DB] Erro ao buscar sessão WhatsApp:', err);
+          reject(err);
+        } else {
+          resolve(row);
+        }
+      }
+    );
+  });
+}
+
+// Atualizar status da sessão
+async function updateWhatsAppSessionStatus(userId, status) {
+  return new Promise((resolve, reject) => {
+    const now = new Date().toISOString();
+
+    db.run(
+      'UPDATE whatsapp_sessions SET status = ?, updated_at = ? WHERE user_id = ?',
+      [status, now, userId],
+      function(err) {
+        if (err) {
+          console.error('[MULTI-SESSION:DB] Erro ao atualizar status:', err);
+          reject(err);
+        } else {
+          resolve(this.changes);
+        }
+      }
+    );
+  });
+}
+
+// Remover sessão do WhatsApp
+async function deleteWhatsAppSession(userId) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      'DELETE FROM whatsapp_sessions WHERE user_id = ?',
+      [userId],
+      function(err) {
+        if (err) {
+          console.error('[MULTI-SESSION:DB] Erro ao remover sessão WhatsApp:', err);
+          reject(err);
+        } else {
+          console.log(`[MULTI-SESSION:DB] Sessão WhatsApp removida | User: ${userId}`);
+          resolve(this.changes);
+        }
+      }
+    );
+  });
+}
+
+// Listar todas as sessões ativas
+async function getAllWhatsAppSessions() {
+  return new Promise((resolve, reject) => {
+    db.all(
+      'SELECT * FROM whatsapp_sessions ORDER BY last_connection DESC',
+      [],
+      (err, rows) => {
+        if (err) {
+          console.error('[MULTI-SESSION:DB] Erro ao listar sessões:', err);
+          reject(err);
+        } else {
+          resolve(rows);
+        }
+      }
+    );
+  });
+}
+
+// ============================================
 // EXPORTS
 // ============================================
 
@@ -576,5 +706,11 @@ module.exports = {
   isSessionActive,
   updateSessionActivity,
   logoutSession,
-  cleanOldSessions
+  cleanOldSessions,
+  // [MULTI-SESSION:WHATSAPP] Exportar funções de sessão do WhatsApp
+  saveWhatsAppSession,
+  getWhatsAppSession,
+  updateWhatsAppSessionStatus,
+  deleteWhatsAppSession,
+  getAllWhatsAppSessions
 };

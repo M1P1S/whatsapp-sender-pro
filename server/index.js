@@ -36,7 +36,8 @@ const session = require('express-session');
 const SQLiteStore = require('connect-sqlite3')(session);
 const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
-const { connectToWhatsApp, sendMessage, getQRCode, getConnectionStatus, forceLogout } = require('./whatsapp-simple');
+// [MULTI-SESSION:WHATSAPP] Gerenciador de múltiplas sessões
+const whatsappManager = require('./whatsapp-manager');
 const PDFDocument = require('pdfkit');
 const db = require('./database');
 const paymentService = require('./payment'); 
@@ -454,21 +455,31 @@ app.get('/api/user/premium-status', authenticateToken, async (req, res) => {
   }
 });
 
-// Conectar ao WhatsApp ao iniciar
-console.log('🔄 Iniciando conexão com WhatsApp...');
-connectToWhatsApp();
+// [MULTI-SESSION:WHATSAPP] Não conecta ao iniciar - cada usuário conecta quando logar
+console.log('✅ Sistema de multi-sessões do WhatsApp pronto');
 
-// ===== WORKER DE AGENDAMENTOS =====
+// ============================================
+// [MULTI-SESSION:WHATSAPP] WORKER DE AGENDAMENTOS
+// ============================================
 setInterval(async () => {
   try {
     const pendingSchedules = await db.getPendingSchedules();
-    
+
     if (pendingSchedules.length > 0) {
-      console.log(`📅 Processando ${pendingSchedules.length} agendamentos pendentes...`);
+      console.log(`[MULTI-SESSION] Processando ${pendingSchedules.length} agendamentos pendentes...`);
     }
 
     for (const schedule of pendingSchedules) {
       try {
+        const userId = schedule.user_id;
+
+        // Verificar se usuário está conectado
+        const status = whatsappManager.getConnectionStatus(userId);
+        if (!status.connected) {
+          console.log(`[MULTI-SESSION] Agendamento ${schedule.id} adiado - User ${userId} não conectado`);
+          continue; // Pular para próximo agendamento
+        }
+
         // Marca como processando
         await db.updateScheduleStatus(schedule.id, 'processing');
 
@@ -477,12 +488,14 @@ setInterval(async () => {
         let successCount = 0;
         let errorCount = 0;
 
+        console.log(`[MULTI-SESSION] Agendamento ${schedule.id} - User ${userId} enviando para ${contacts.length} contatos`);
+
         for (const contact of contacts) {
           try {
             const delay = Math.floor(Math.random() * 2000) + 2000;
             await new Promise(resolve => setTimeout(resolve, delay));
-            
-            await sendMessage(contact, schedule.message, schedule.media_path, schedule.media_type);
+
+            await whatsappManager.sendMessage(userId, contact, schedule.message, schedule.media_path, schedule.media_type);
             results.push({ contact, success: true });
             successCount++;
           } catch (error) {
@@ -493,10 +506,10 @@ setInterval(async () => {
 
         // Atualiza status como concluído
         await db.updateScheduleStatus(schedule.id, 'sent', new Date().toISOString());
-        
+
         // Adiciona ao histórico
         await db.addToHistory(
-          schedule.user_id,
+          userId,
           contacts.length,
           successCount,
           errorCount,
@@ -505,16 +518,16 @@ setInterval(async () => {
         );
 
         // Incrementa contador do usuário
-        await db.incrementSends(schedule.user_id, successCount);
+        await db.incrementSends(userId, successCount);
 
-        console.log(`✅ Agendamento ${schedule.id} concluído: ${successCount} sucesso, ${errorCount} falhas`);
+        console.log(`[MULTI-SESSION] Agendamento ${schedule.id} concluído: ${successCount} sucesso, ${errorCount} falhas`);
       } catch (error) {
-        console.error(`❌ Erro ao processar agendamento ${schedule.id}:`, error);
+        console.error(`[MULTI-SESSION] Erro ao processar agendamento ${schedule.id}:`, error);
         await db.updateScheduleStatus(schedule.id, 'failed', new Date().toISOString());
       }
     }
   } catch (error) {
-    console.error('❌ Erro no worker de agendamentos:', error);
+    console.error('[MULTI-SESSION] Erro no worker de agendamentos:', error);
   }
 }, 30000); // Verifica a cada 30 segundos
 
@@ -846,25 +859,9 @@ app.post('/api/plan/upgrade', authenticateToken, async (req, res) => {
 // ============================================
 
 // ============================================
-// 🔧 CORREÇÃO 1 e 4: Status do WhatsApp
+// [MULTI-SESSION:WHATSAPP] Status do WhatsApp (duplicado removido - usar /api/status)
 // ============================================
-app.get('/api/whatsapp/status', authenticateToken, async (req, res) => {
-  try {
-    const connected = getConnectionStatus();
-    
-    res.json({
-      status: connected ? 'connected' : 'disconnected',
-      connected: connected
-    });
-  } catch (error) {
-    console.error('❌ Erro ao verificar status:', error);
-    res.status(500).json({ 
-      status: 'error',
-      connected: false,
-      error: 'Erro ao verificar status' 
-    });
-  }
-});
+// ROTA REMOVIDA - Usar /api/status ao invés
 
 // Cancelar/Deletar agendamento
 
@@ -1168,43 +1165,76 @@ app.get('/api/reports/csv', authenticateToken, async (req, res) => {
 
 // ===== ROTAS DO WHATSAPP (PROTEGIDAS) =====
 
-// QR Code
-app.get('/api/qrcode', (req, res) => {
+// ============================================
+// [MULTI-SESSION:WHATSAPP] QR Code individual por usuário
+// ============================================
+app.get('/api/qrcode', authenticateToken, async (req, res) => {
   try {
-    const qr = getQRCode();
-    const connected = getConnectionStatus();
-    res.json({ qrCode: qr, connected });
+    const userId = req.user.id;
+
+    // Verificar se sessão existe
+    const sessionInfo = whatsappManager.getSessionInfo(userId);
+
+    // Se não existe, criar nova sessão
+    if (!sessionInfo.exists) {
+      console.log(`[MULTI-SESSION] Criando sessão para User ${userId}`);
+      await whatsappManager.createSession(userId);
+
+      // Aguardar 2 segundos para QR Code ser gerado
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    // Obter QR Code
+    const qr = whatsappManager.getQRCode(userId);
+    const status = whatsappManager.getConnectionStatus(userId);
+
+    res.json({
+      qrCode: qr,
+      connected: status.connected,
+      status: status.status
+    });
   } catch (error) {
+    console.error('[MULTI-SESSION] Erro ao obter QR Code:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Status
+// ============================================
+// [MULTI-SESSION:WHATSAPP] Status da conexão individual
+// ============================================
 app.get('/api/status', authenticateToken, (req, res) => {
   try {
-    const connected = getConnectionStatus();
-    res.json({ connected });
+    const userId = req.user.id;
+    const status = whatsappManager.getConnectionStatus(userId);
+
+    res.json({
+      connected: status.connected,
+      status: status.status
+    });
   } catch (error) {
+    console.error('[MULTI-SESSION] Erro ao verificar status:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Desconectar WhatsApp
+// ============================================
+// [MULTI-SESSION:WHATSAPP] Desconectar WhatsApp individual
+// ============================================
 app.post('/api/disconnect', authenticateToken, async (req, res) => {
   try {
-    console.log(`🔌 ${req.user.email} solicitou desconexão`);
-    const success = await forceLogout();
-    
-    if (success) {
-      // Aguarda 3 segundos e reconecta automaticamente
-      setTimeout(() => {
-        console.log('🔄 Reiniciando WhatsApp para novo QR Code...');
-        connectToWhatsApp();
-      }, 3000);
+    const userId = req.user.id;
+    console.log(`[MULTI-SESSION] User ${userId} (${req.user.email}) solicitou desconexão`);
+
+    const result = await whatsappManager.logoutSession(userId);
+
+    if (result.success) {
+      // Atualizar status no banco
+      await db.updateWhatsAppSessionStatus(userId, 'disconnected');
     }
-    
-    res.json({ success });
+
+    res.json(result);
   } catch (error) {
+    console.error('[MULTI-SESSION] Erro ao desconectar:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1308,11 +1338,24 @@ app.post('/api/upload-contacts', authenticateToken, upload.single('file'), (req,
   }
 });
 
-// Enviar mensagens
+// ============================================
+// [MULTI-SESSION:WHATSAPP] Enviar mensagens com sessão individual
+// ============================================
 app.post('/api/send', authenticateToken, upload.single('media'), async (req, res) => {
   try {
+    const userId = req.user.id;
+
     if (!req.body.contacts || !req.body.message) {
       return res.status(400).json({ error: 'Contatos e mensagem são obrigatórios' });
+    }
+
+    // Verificar se WhatsApp está conectado
+    const status = whatsappManager.getConnectionStatus(userId);
+    if (!status.connected) {
+      return res.status(400).json({
+        error: 'WhatsApp não está conectado. Conecte-se primeiro.',
+        needsConnection: true
+      });
     }
 
     const { contacts, message, minInterval = 2, maxInterval = 4 } = req.body;
@@ -1332,15 +1375,15 @@ app.post('/api/send', authenticateToken, upload.single('media'), async (req, res
       else if (mimeType.includes('video')) mediaType = 'video';
       else if (mimeType.includes('audio')) mediaType = 'audio';
       else mediaType = 'document';
-      
-      console.log(`📎 Mídia: ${mimeType} -> ${mediaType} (${(req.file.size / 1024 / 1024).toFixed(2)}MB)`);
+
+      console.log(`[MULTI-SESSION] User ${userId} - Mídia: ${mimeType} -> ${mediaType} (${(req.file.size / 1024 / 1024).toFixed(2)}MB)`);
     }
 
-    const permission = await db.canSend(req.user.id, contactList.length, hasMedia);
-    
+    const permission = await db.canSend(userId, contactList.length, hasMedia);
+
     if (!permission.allowed) {
       if (mediaPath) fs.unlinkSync(mediaPath);
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: permission.message || `Limite atingido. Restam ${permission.remaining} mensagens hoje.`,
         needsUpgrade: permission.plan === 'FREE' && hasMedia,
         remaining: permission.remaining
@@ -1351,20 +1394,22 @@ app.post('/api/send', authenticateToken, upload.single('media'), async (req, res
     let successCount = 0;
     let errorCount = 0;
 
+    console.log(`[MULTI-SESSION] User ${userId} iniciando envio para ${contactList.length} contatos`);
+
     for (const contact of contactList) {
       try {
         // Intervalo configurável pelo usuário
         const delay = Math.floor(Math.random() * (max - min + 1)) + min;
-        console.log(`⏱️  Aguardando ${delay/1000}s antes do próximo envio...`);
+        console.log(`[MULTI-SESSION] User ${userId} aguardando ${delay/1000}s...`);
         await new Promise(resolve => setTimeout(resolve, delay));
-        
-        await sendMessage(contact, message, mediaPath, mediaType);
+
+        await whatsappManager.sendMessage(userId, contact, message, mediaPath, mediaType);
         results.push({ contact, success: true });
         successCount++;
       } catch (error) {
         results.push({ contact, success: false, error: error.message });
         errorCount++;
-        console.error(`❌ Falha no envio para ${contact}:`, error.message);
+        console.error(`[MULTI-SESSION] User ${userId} falha para ${contact}:`, error.message);
       }
     }
 
@@ -1372,13 +1417,13 @@ app.post('/api/send', authenticateToken, upload.single('media'), async (req, res
       fs.unlinkSync(mediaPath);
     }
 
-    await db.incrementSends(req.user.id, successCount);
-    await db.addToHistory(req.user.id, contactList.length, successCount, errorCount, hasMedia, contactList);
+    await db.incrementSends(userId, successCount);
+    await db.addToHistory(userId, contactList.length, successCount, errorCount, hasMedia, contactList);
 
-    console.log(`📊 ${req.user.email}: ${successCount} enviados, ${errorCount} falhas`);
+    console.log(`[MULTI-SESSION] User ${userId} (${req.user.email}): ${successCount} enviados, ${errorCount} falhas`);
     res.json({ success: true, results });
   } catch (error) {
-    console.error('❌ Erro no envio:', error);
+    console.error('[MULTI-SESSION] Erro no envio:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1393,26 +1438,37 @@ app.get('/api/history', authenticateToken, async (req, res) => {
   }
 });
 
-// Testar número individual
+// ============================================
+// [MULTI-SESSION:WHATSAPP] Testar número individual
+// ============================================
 app.post('/api/test-number', authenticateToken, async (req, res) => {
   try {
+    const userId = req.user.id;
     const { number } = req.body;
-    
+
     if (!number) {
       return res.status(400).json({ error: 'Número é obrigatório' });
     }
-    
-    const { checkNumberExists } = require('./whatsapp-simple');
+
+    // Verificar se WhatsApp está conectado
+    const status = whatsappManager.getConnectionStatus(userId);
+    if (!status.connected) {
+      return res.status(400).json({
+        error: 'WhatsApp não está conectado. Conecte-se primeiro.',
+        needsConnection: true
+      });
+    }
+
     const cleaned = String(number).replace(/\D/g, '');
-    const exists = await checkNumberExists(cleaned);
-    
-    res.json({ 
+    const exists = await whatsappManager.checkNumberExists(userId, cleaned);
+
+    res.json({
       number,
       exists,
       formatted: cleaned
     });
   } catch (error) {
-    console.error('Erro ao testar número:', error);
+    console.error('[MULTI-SESSION] Erro ao testar número:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1476,10 +1532,70 @@ app.delete('/api/schedule/:id', authenticateToken, async (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     timestamp: new Date().toISOString()
   });
+});
+
+// ============================================
+// [MULTI-SESSION:WHATSAPP] ROTAS ADMINISTRATIVAS
+// ============================================
+
+// Listar todas as sessões (admin)
+app.get('/api/admin/sessions', authenticateToken, async (req, res) => {
+  try {
+    // Apenas para usuários PRO (pode adicionar verificação de admin)
+    if (req.user.plan !== 'PRO') {
+      return res.status(403).json({ error: 'Acesso negado' });
+    }
+
+    const sessions = whatsappManager.getAllSessionsInfo();
+    res.json({ sessions, total: sessions.length });
+  } catch (error) {
+    console.error('[MULTI-SESSION] Erro ao listar sessões:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Informações da própria sessão
+app.get('/api/whatsapp/my-session', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const sessionInfo = whatsappManager.getSessionInfo(userId);
+    const dbSession = await db.getWhatsAppSession(userId);
+
+    res.json({
+      memory: sessionInfo,
+      database: dbSession
+    });
+  } catch (error) {
+    console.error('[MULTI-SESSION] Erro ao obter info da sessão:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Forçar reconexão
+app.post('/api/whatsapp/reconnect', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    console.log(`[MULTI-SESSION] User ${userId} solicitou reconexão`);
+
+    // Destruir sessão atual
+    await whatsappManager.destroySession(userId);
+
+    // Aguardar 2 segundos
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Criar nova sessão
+    await whatsappManager.createSession(userId);
+
+    res.json({ success: true, message: 'Reconectando...' });
+  } catch (error) {
+    console.error('[MULTI-SESSION] Erro ao reconectar:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 
