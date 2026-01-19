@@ -287,7 +287,7 @@ async function canSend(userId, count, hasMedia = false) {
   const user = await getUserById(userId);
   
   // Verifica se plano PRO está ativo
-  if (user.plan === 'PRO') {
+  if (user.plan === 'PRO' || user.plan === 'PREMIUM') {
     if (user.plan_expires_at) {
       const expiresAt = new Date(user.plan_expires_at);
       if (expiresAt < new Date()) {
@@ -303,10 +303,22 @@ async function canSend(userId, count, hasMedia = false) {
           todaySends: todaySends,
           limit: 500,
           unlimited: true,
-          plan: 'PRO',
+          plan: user.plan,
           canSendMedia: true
         };
       }
+    } else {
+      // PRO/PREMIUM SEM vencimento (ILIMITADO)
+      const todaySends = await getTodaySends(userId);
+      return {
+        allowed: true,
+        remaining: 999999,
+        todaySends: todaySends,
+        limit: 999999,
+        unlimited: true,
+        plan: user.plan,
+        canSendMedia: true
+      };
     }
   }
   
@@ -628,8 +640,8 @@ async function updateWhatsAppSessionStatus(userId, status) {
     const now = new Date().toISOString();
 
     db.run(
-      'UPDATE whatsapp_sessions SET status = ?, updated_at = ? WHERE user_id = ?',
-      [status, now, userId],
+     'INSERT OR REPLACE INTO whatsapp_sessions (user_id, status, updated_at) VALUES (?, ?, ?)',
+      [userId, status, now],
       function(err) {
         if (err) {
           console.error('[MULTI-SESSION:DB] Erro ao atualizar status:', err);
@@ -683,7 +695,38 @@ async function getAllWhatsAppSessions() {
 // EXPORTS
 // ============================================
 
+// Funções auxiliares para queries genéricas
+function run(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function(err) {
+      if (err) reject(err);
+      else resolve({ lastID: this.lastID, changes: this.changes });
+    });
+  });
+}
+
+function get(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) reject(err);
+      else resolve(row);
+    });
+  });
+}
+
+function all(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
+}
+
 module.exports = {
+  run,
+  get,
+  all,
   db,
   createUser,
   getUserByEmail,
@@ -713,4 +756,250 @@ module.exports = {
   updateWhatsAppSessionStatus,
   deleteWhatsAppSession,
   getAllWhatsAppSessions
+};
+// ============================================================
+// FUNÇÕES ANTI-BAN - SEND MODE
+// ============================================================
+
+// Obter modo de envio do usuário
+async function getUserSendMode(userId) {
+  try {
+    const user = await db.get('SELECT send_mode FROM users WHERE id = ?', [userId]);
+    return user?.send_mode || 'NORMAL';
+  } catch (error) {
+    console.error('Erro ao obter send_mode:', error);
+    return 'NORMAL';
+  }
+}
+
+// Atualizar modo de envio do usuário
+async function updateUserSendMode(userId, mode) {
+  try {
+    await db.run('UPDATE users SET send_mode = ? WHERE id = ?', [mode, userId]);
+    console.log(`✅ Modo de envio atualizado para ${mode} (usuário ${userId})`);
+    return true;
+  } catch (error) {
+    console.error('Erro ao atualizar send_mode:', error);
+    return false;
+  }
+}
+// ============================================
+// VARIAÇÕES DE MENSAGEM (PREMIUM)
+// ============================================
+
+async function addMessageVariation(userId, text, orderIndex = 0) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      "INSERT INTO message_variations (user_id, variation_text, order_index) VALUES (?, ?, ?)",
+      [userId, text, orderIndex],
+      function(err) {
+        if (err) reject(err);
+        else resolve({ id: this.lastID });
+      }
+    );
+  });
+}
+
+async function getMessageVariations(userId) {
+  return new Promise((resolve, reject) => {
+    db.all(
+      "SELECT * FROM message_variations WHERE user_id = ? ORDER BY order_index ASC",
+      [userId],
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      }
+    );
+  });
+}
+
+async function deleteMessageVariation(userId, variationId) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      "DELETE FROM message_variations WHERE id = ? AND user_id = ?",
+      [variationId, userId],
+      (err) => {
+        if (err) reject(err);
+        else resolve({ deleted: true });
+      }
+    );
+  });
+}
+
+async function getNextMessageVariation(userId) {
+  return new Promise((resolve, reject) => {
+    db.all(
+      "SELECT * FROM message_variations WHERE user_id = ? ORDER BY order_index ASC",
+      [userId],
+      (err, rows) => {
+        if (err) reject(err);
+        else if (rows.length === 0) resolve(null);
+        else {
+          const next = rows[0];
+          const maxOrder = Math.max(...rows.map(r => r.order_index));
+          db.run(
+            "UPDATE message_variations SET order_index = ? WHERE id = ?",
+            [maxOrder + 1, next.id],
+            (err) => {
+              if (err) reject(err);
+              else resolve(next);
+            }
+          );
+        }
+      }
+    );
+  });
+}
+
+// ============================================
+// PREFERÊNCIA DE MODO DE INTERVALO
+// ============================================
+
+async function getUserIntervalMode(userId) {
+  return new Promise((resolve, reject) => {
+    db.get("SELECT interval_mode FROM users WHERE id = ?", [userId], (err, row) => {
+      if (err) reject(err);
+      else resolve(row ? row.interval_mode : "antiban");
+    });
+  });
+}
+
+async function updateUserIntervalMode(userId, mode) {
+  return new Promise((resolve, reject) => {
+    db.run("UPDATE users SET interval_mode = ? WHERE id = ?", [mode, userId], (err) => {
+      if (err) reject(err);
+      else resolve({ success: true });
+    });
+  });
+}
+
+// ============================================
+// SISTEMA DE ASSINATURA E PAGAMENTOS
+// ============================================
+
+// Atualizar plano e vencimento do usuário
+async function updateUserPlan(userId, plan, expiresAt) {
+  return new Promise((resolve, reject) => {
+    const now = new Date().toISOString();
+    db.run(
+      "UPDATE users SET plan = ?, plan_expires_at = ?, last_payment_date = ?, subscription_status = 'active', updated_at = ? WHERE id = ?",
+      [plan, expiresAt, now, now, userId],
+      (err) => {
+        if (err) reject(err);
+        else resolve({ success: true });
+      }
+    );
+  });
+}
+
+// Criar registro de pagamento
+async function createPayment(userId, asaasPaymentId, plan, amount, paymentMethod, dueDate, boletoUrl, pixQrcode) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      "INSERT INTO payments (user_id, asaas_payment_id, plan, amount, payment_method, due_date, boleto_url, pix_qrcode) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [userId, asaasPaymentId, plan, amount, paymentMethod, dueDate, boletoUrl, pixQrcode],
+      function(err) {
+        if (err) reject(err);
+        else resolve({ id: this.lastID, success: true });
+      }
+    );
+  });
+}
+
+// Atualizar status de pagamento
+async function updatePaymentStatus(asaasPaymentId, status, paymentDate) {
+  return new Promise((resolve, reject) => {
+    const now = new Date().toISOString();
+    db.run(
+      "UPDATE payments SET status = ?, payment_date = ?, updated_at = ? WHERE asaas_payment_id = ?",
+      [status, paymentDate, now, asaasPaymentId],
+      (err) => {
+        if (err) reject(err);
+        else resolve({ success: true });
+      }
+    );
+  });
+}
+
+// Buscar pagamento por ID do Asaas
+async function getPaymentByAsaasId(asaasPaymentId) {
+  return new Promise((resolve, reject) => {
+    db.get("SELECT * FROM payments WHERE asaas_payment_id = ?", [asaasPaymentId], (err, row) => {
+      if (err) reject(err);
+      else resolve(row);
+    });
+  });
+}
+
+// Buscar usuários com planos vencidos
+async function getExpiredUsers() {
+  return new Promise((resolve, reject) => {
+    const now = new Date().toISOString();
+    db.all(
+      "SELECT * FROM users WHERE plan IN ('PRO', 'PREMIUM') AND plan_expires_at <= ? AND subscription_status = 'active'",
+      [now],
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows || []);
+      }
+    );
+  });
+}
+
+// Downgrade usuário para FREE
+async function downgradeToFree(userId) {
+  return new Promise((resolve, reject) => {
+    const now = new Date().toISOString();
+    db.run(
+      "UPDATE users SET plan = 'FREE', subscription_status = 'expired', updated_at = ? WHERE id = ?",
+      [now, userId],
+      (err) => {
+        if (err) reject(err);
+        else resolve({ success: true });
+      }
+    );
+  });
+}
+
+// Atualizar customer ID do Asaas
+async function updateAsaasCustomerId(userId, customerId) {
+  return new Promise((resolve, reject) => {
+    db.run("UPDATE users SET asaas_customer_id = ? WHERE id = ?", [customerId, userId], (err) => {
+      if (err) reject(err);
+      else resolve({ success: true });
+    });
+  });
+}
+
+// Buscar pagamentos do usuário
+async function getUserPayments(userId) {
+  return new Promise((resolve, reject) => {
+    db.all(
+      "SELECT * FROM payments WHERE user_id = ? ORDER BY created_at DESC",
+      [userId],
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows || []);
+      }
+    );
+  });
+}
+module.exports = {
+  ...module.exports,
+  getUserSendMode,
+  updateUserSendMode,
+  addMessageVariation,
+  getMessageVariations,
+  deleteMessageVariation,
+  getNextMessageVariation,
+  getUserIntervalMode,
+  updateUserIntervalMode,
+  updateUserPlan,
+  createPayment,
+  updatePaymentStatus,
+  getPaymentByAsaasId,
+  getExpiredUsers,
+  downgradeToFree,
+  updateAsaasCustomerId,
+  getUserPayments
 };

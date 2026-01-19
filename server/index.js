@@ -8,6 +8,7 @@ if (missingEnvVars.length > 0) {
   console.error('Configure o arquivo .env com:');
   console.error('- JWT_SECRET');
   console.error('- ASAAS_API_KEY');
+// Função para limpar locks órfãos (sem processo Chrome ativo)
   console.error('\nObtenha a chave do Asaas em: https://www.asaas.com/configuracoes/api');
   process.exit(1);
 }
@@ -41,6 +42,10 @@ const whatsappManager = require('./whatsapp-manager');
 const PDFDocument = require('pdfkit');
 const db = require('./database');
 const paymentService = require('./payment'); 
+const blacklistService = require('./blacklist-service');
+const asaasService = require('./asaas-service');
+const expirationJob = require('./expiration-job');
+const smartDelay = require('./smart-delay');
 const app = express();
 app.set('trust proxy', 1);
 app.set('trust proxy', 1);
@@ -56,7 +61,7 @@ app.use((req, res, next) => {
     "script-src 'self' 'unsafe-inline'; " +
     "style-src 'self' 'unsafe-inline'; " +
     "img-src 'self' data: https: http:; " +
-    "connect-src 'self'  ; " +
+    "connect-src 'self'; " +
     "font-src 'self'; " +
     "object-src 'none'; " +
     "base-uri 'self';"
@@ -162,21 +167,21 @@ async function authenticateToken(req, res, next) {
     // Verificar JWT
     const decoded = jwt.verify(token, JWT_SECRET);
     
-    // [SINGLE-SESSION:LOGIC] Verificar se sessão está ativa no banco
-    const isActive = await db.isSessionActive(token);
-    
-    if (!isActive) {
-      console.log(`[SINGLE-SESSION] Sessão inválida/desconectada | User: ${decoded.userId}`);
-      return res.status(401).json({ 
-        success: false, 
-        error: 'session_terminated',
-        message: 'Você foi desconectado. Outro dispositivo fez login com esta conta.',
-        disconnected: true
-      });
-    }
-    
-    // [SINGLE-SESSION:LOGIC] Atualizar última atividade
-    await db.updateSessionActivity(token);
+// //     // [SINGLE-SESSION:LOGIC] Verificar se sessão está ativa no banco
+// //     const isActive = await db.isSessionActive(token);
+// //     
+// //     if (!isActive) {
+// //       console.log(`[SINGLE-SESSION] Sessão inválida/desconectada | User: ${decoded.userId}`);
+// //       return res.status(401).json({ 
+// //         success: false, 
+// //         error: 'session_terminated',
+// //         message: 'Você foi desconectado. Outro dispositivo fez login com esta conta.',
+// //         disconnected: true
+// //       });
+// //     }
+// //     
+// //     // [SINGLE-SESSION:LOGIC] Atualizar última atividade
+// //     await db.updateSessionActivity(token);
     
     // Buscar usuário
     const user = await db.getUserById(decoded.userId);
@@ -377,7 +382,9 @@ app.post('/api/payment/webhook', async (req, res) => {
       // Atualizar usuário para PRO
       await db.run(
         `UPDATE users 
-         SET plan = 'PRO', 
+         SET plan = 'PRO',
+             subscription_status = 'active',
+             last_payment_date = CURRENT_TIMESTAMP, 
              plan_expires_at = ?,
              updated_at = CURRENT_TIMESTAMP 
          WHERE id = ?`,
@@ -436,11 +443,11 @@ app.get('/payment/pending', (req, res) => {
 // Verificar status premium do usuário
 app.get('/api/user/premium-status', authenticateToken, async (req, res) => {
   try {
-    const isPremiumActive = req.user.plan === 'PRO' && 
+    const isPremiumActive = (req.user.plan === 'PRO' || req.user.plan === 'PREMIUM') &&
       new Date(req.user.plan_expires_at) > new Date();
-    
-    // Se expirou, atualizar no banco
-    if (req.user.plan === 'PRO' && !isPremiumActive) {
+
+    // Se expirou, volta para FREE
+    if ((req.user.plan === 'PRO' || req.user.plan === 'PREMIUM') && !isPremiumActive) {
       await db.run('UPDATE users SET plan = ? WHERE id = ?', ['FREE', req.user.id]);
     }
     
@@ -492,9 +499,13 @@ setInterval(async () => {
 
         for (const contact of contacts) {
           try {
-            const delay = Math.floor(Math.random() * 2000) + 2000;
+            // Usar intervalos salvos no banco (em segundos)
+            const minMs = (schedule.min_interval || 30) * 1000;
+            const maxMs = (schedule.max_interval || 45) * 1000;
+            const delay = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+            
+            console.log(`[MULTI-SESSION] Aguardando ${Math.round(delay/1000)}s antes do próximo envio...`);
             await new Promise(resolve => setTimeout(resolve, delay));
-
             await whatsappManager.sendMessage(userId, contact, schedule.message, schedule.media_path, schedule.media_type);
             results.push({ contact, success: true });
             successCount++;
@@ -551,7 +562,7 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
     const user = await db.createUser(email, password, name, cpf);
     
     // Cria token
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign({ userId: user.id, plan: user.plan }, JWT_SECRET, { expiresIn: '24h' });
     req.session.token = token;
     
     console.log(`✅ Novo usuário cadastrado: ${email}`);
@@ -581,7 +592,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     }
     
     // Cria token
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign({ userId: user.id, plan: user.plan }, JWT_SECRET, { expiresIn: '24h' });
     req.session.token = token;
     
     // [SINGLE-SESSION:LOGIC] Coletar informações do dispositivo
@@ -720,7 +731,7 @@ app.post('/api/payment/create-pix', authenticateToken, async (req, res) => {
     const { planType } = req.body;
     const userId = req.user.id;
 
-    const amount = planType === "yearly" ? 999.00 : 99.90;
+    const amount = planType === "yearly" ? 999.00 : (planType === "premium" ? 199.90 : 99.90);
     const description = planType === "yearly"
       ? "WhatsApp Sender PRO - Plano Anual"
       : "WhatsApp Sender PRO - Plano Mensal";
@@ -822,11 +833,11 @@ app.get('/payment/pending', (req, res) => {
 // Verificar status premium (atualizado)
 app.get('/api/user/premium-status', authenticateToken, async (req, res) => {
   try {
-    const isPremiumActive = req.user.plan === 'PRO' && 
+    const isPremiumActive = req.user.plan === 'PRO' || req.user.plan === 'PREMIUM' && 
       new Date(req.user.plan_expires_at) > new Date();
     
     // Se expirou, atualizar no banco
-    if (req.user.plan === 'PRO' && !isPremiumActive) {
+    if (req.user.plan === 'PRO' || req.user.plan === 'PREMIUM' && !isPremiumActive) {
       await db.run('UPDATE users SET plan = ? WHERE id = ?', ['FREE', req.user.id]);
     }
     
@@ -901,7 +912,7 @@ app.get('/api/reports/pdf', authenticateToken, async (req, res) => {
     const user = await db.getUserById(userId);
     
     // Verificar se é PRO
-    if (user.plan !== 'PRO') {
+    if (user.plan !== 'PRO' && user.plan !== 'PREMIUM') {
       return res.status(403).json({
         success: false,
         error: 'Exportação de PDF é exclusiva do plano PRO'
@@ -1110,7 +1121,7 @@ app.get('/api/reports/csv', authenticateToken, async (req, res) => {
     
     const user = await db.getUserById(userId);
     
-    if (user.plan !== 'PRO') {
+    if (user.plan !== 'PRO' && user.plan !== 'PREMIUM') {
       return res.status(403).json({
         success: false,
         error: 'Exportação de CSV é exclusiva do plano PRO'
@@ -1240,7 +1251,40 @@ app.post('/api/disconnect', authenticateToken, async (req, res) => {
 });
 
 // Upload de contatos
-app.post('/api/upload-contacts', authenticateToken, upload.single('file'), (req, res) => {
+
+// Função para salvar contatos manuais no banco
+async function saveManualContacts(userId, phoneNumbers) {
+  const phoneNormalizer = require('./phone-normalizer');
+  let saved = 0;
+  
+  for (const phone of phoneNumbers) {
+    const normalized = phoneNormalizer.normalizePhone(phone);
+    if (normalized && phoneNormalizer.validateBrazilianPhone(normalized)) {
+      try {
+        // Verifica se já existe
+        const existing = await db.get(
+          'SELECT id FROM contacts WHERE user_id = ? AND phone = ?',
+          [userId, normalized]
+        );
+        
+        if (!existing) {
+          await db.run(
+            `INSERT INTO contacts (user_id, name, phone, source, created_at)
+             VALUES (?, ?, ?, 'manual', CURRENT_TIMESTAMP)`,
+            [userId, 'Contato Manual', normalized]
+          );
+          saved++;
+        }
+      } catch (error) {
+        console.error(`Erro ao salvar ${normalized}:`, error);
+      }
+    }
+  }
+  
+  console.log(`[Manual Contacts] Salvos ${saved} novos contatos`);
+  return saved;
+}
+app.post('/api/upload-contacts', authenticateToken, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'Nenhum arquivo enviado' });
@@ -1330,6 +1374,7 @@ app.post('/api/upload-contacts', authenticateToken, upload.single('file'), (req,
     contacts = contacts.map(c => String(c).replace(/\D/g, '')).filter(c => c.length >= 10);
     fs.unlinkSync(filePath);
 
+    await saveManualContacts(req.user.id, contacts);
     console.log(`✅ ${contacts.length} contatos carregados por ${req.user.email}`);
     res.json({ success: true, contacts });
   } catch (error) {
@@ -1358,7 +1403,7 @@ app.post('/api/send', authenticateToken, upload.single('media'), async (req, res
       });
     }
 
-    const { contacts, message, minInterval = 2, maxInterval = 4 } = req.body;
+    const { contacts, message, minInterval = 30, maxInterval = 45 } = req.body;
     const contactList = JSON.parse(contacts);
     const mediaPath = req.file ? req.file.path : null;
     const hasMedia = !!mediaPath;
@@ -1398,12 +1443,43 @@ app.post('/api/send', authenticateToken, upload.single('media'), async (req, res
 
     for (const contact of contactList) {
       try {
-        // Intervalo configurável pelo usuário
-        const delay = Math.floor(Math.random() * (max - min + 1)) + min;
-        console.log(`[MULTI-SESSION] User ${userId} aguardando ${delay/1000}s...`);
+        // [INTERVAL-MODE] Calcular delay baseado na preferência
+        let delay;
+        const intervalMode = await db.getUserIntervalMode(userId);
+        const user = await db.getUserById(userId);
+        
+        if (intervalMode === "antiban" && user.plan === "PREMIUM") {
+          // Usar modo anti-ban (SEGURO/NORMAL/TURBO)
+          const sendMode = await db.getUserSendMode(userId);
+          delay = smartDelay.getSmartRandomDelay(sendMode);
+          console.log(`[ANTI-BAN] User ${userId} modo ${sendMode}: ${delay/1000}s`);
+        } else {
+          // Usar intervalo manual (min/max)
+          delay = Math.floor(Math.random() * (max - min + 1)) + min;
+          console.log(`[MANUAL] User ${userId} aguardando ${delay/1000}s...`);
+        }
         await new Promise(resolve => setTimeout(resolve, delay));
-
-        await whatsappManager.sendMessage(userId, contact, message, mediaPath, mediaType);
+        // [VARIAÇÕES] Aplicar variação se PREMIUM
+        let finalMessage = message;
+        if (user.plan === "PREMIUM") {
+          const variationObj = await db.getNextMessageVariation(userId);
+          if (variationObj && variationObj.variation_text) {
+            // Pegar uma variação aleatória da lista separada por vírgula
+            const variations = variationObj.variation_text.split(',').map(v => v.trim());
+            const randomVariation = variations[Math.floor(Math.random() * variations.length)];
+            
+            // Substituir primeira palavra pela variação
+            const words = message.trim().split(/\s+/);
+            if (words.length > 0) {
+              const originalFirst = words[0];
+              words[0] = randomVariation;
+              finalMessage = words.join(' ');
+              console.log(`[VARIAÇÃO] User ${userId}: "${originalFirst}" → "${randomVariation}"`);
+            }
+          }
+        }
+        
+        await whatsappManager.sendMessage(userId, contact, finalMessage, mediaPath, mediaType);
         results.push({ contact, success: true });
         successCount++;
       } catch (error) {
@@ -1479,7 +1555,7 @@ app.post('/api/test-number', authenticateToken, async (req, res) => {
 app.post('/api/schedule', authenticateToken, upload.single('media'), async (req, res) => {
   try {
     // Verifica se é PRO
-    if (req.user.plan !== 'PRO') {
+    if (req.user.plan !== 'PRO' && req.user.plan !== 'PREMIUM') {
       return res.status(403).json({ error: 'Agendamento disponível apenas no plano PRO' });
     }
 
@@ -1624,9 +1700,298 @@ setTimeout(async () => {
 
 // Iniciar servidor
 app.listen(PORT, () => {
+
+// ============================================
+// [PHASE2:VARIATIONS] Gerenciar Variações de Mensagem (PREMIUM)
+// ============================================
+
+// Listar variações
+app.get('/api/message-variations', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await db.getUserById(userId);
+    
+    if (user.plan !== 'PREMIUM') {
+      return res.status(403).json({ error: 'Recurso disponível apenas para PREMIUM' });
+    }
+    
+    const variations = await db.getMessageVariations(userId);
+    res.json({ variations });
+  } catch (error) {
+    console.error('[VARIATIONS] Erro ao listar:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Adicionar variação
+app.post('/api/message-variations', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { text } = req.body;
+    const user = await db.getUserById(userId);
+    
+    if (user.plan !== 'PREMIUM') {
+      return res.status(403).json({ error: 'Recurso disponível apenas para PREMIUM' });
+    }
+    
+    if (!text || text.trim().length === 0) {
+      return res.status(400).json({ error: 'Texto da variação é obrigatório' });
+    }
+    
+    const result = await db.addMessageVariation(userId, text.trim());
+    res.json({ success: true, id: result.id });
+  } catch (error) {
+    console.error('[VARIATIONS] Erro ao adicionar:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Deletar variação
+app.delete('/api/message-variations/:id', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const variationId = req.params.id;
+    
+    await db.deleteMessageVariation(userId, variationId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[VARIATIONS] Erro ao deletar:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+// ============================================
+// [ANTI-BAN - PREMIUM] Rotas de configuração
+// ============================================
+
+// Obter modo de envio do usuário (PREMIUM)
+app.get('/api/send-mode', authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const mode = await db.getUserSendMode(req.user.id);
+    const modeInfo = smartDelay.getModeInfo(mode);
+    res.json({ mode, info: modeInfo });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Atualizar modo de envio (PREMIUM)
+app.put('/api/send-mode', authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const { mode } = req.body;
+    if (!['SEGURO', 'NORMAL', 'TURBO'].includes(mode)) {
+      return res.status(400).json({ error: 'Modo inválido' });
+    }
+    await db.updateUserSendMode(req.user.id, mode);
+    const modeInfo = smartDelay.getModeInfo(mode);
+    res.json({ success: true, mode, info: modeInfo });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// [INTERVAL-MODE] Gerenciar preferência de modo
+// ============================================
+
+// Buscar preferência
+app.get("/api/interval-mode", authenticateToken, async (req, res) => {
+  try {
+    const mode = await db.getUserIntervalMode(req.user.id);
+    res.json({ mode });
+  } catch (error) {
+    console.error("[INTERVAL-MODE] Erro ao buscar:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Atualizar preferência
+app.put("/api/interval-mode", authenticateToken, async (req, res) => {
+  try {
+    const { mode } = req.body;
+    if (!["manual", "antiban"].includes(mode)) {
+      return res.status(400).json({ error: "Modo inválido. Use: manual ou antiban" });
+    }
+    await db.updateUserIntervalMode(req.user.id, mode);
+    res.json({ success: true, mode });
+  } catch (error) {
+    console.error("[INTERVAL-MODE] Erro ao atualizar:", error);
+    res.status(500).json({ error: error.message });
+  }
+
+// ============================================
+// [ASSINATURA] Sistema de Pagamentos Asaas
+// ============================================
+
+// Criar assinatura (gerar boleto ou PIX)
+app.post('/api/subscription/create', authenticateToken, async (req, res) => {
+  try {
+    const { plan, paymentMethod } = req.body;
+    
+    // Validar plano
+    if (!['PRO', 'PREMIUM'].includes(plan)) {
+      return res.status(400).json({ error: 'Plano inválido' });
+    }
+    
+    // Validar método de pagamento
+    if (!['BOLETO', 'PIX'].includes(paymentMethod)) {
+      return res.status(400).json({ error: 'Método de pagamento inválido' });
+    }
+    
+    const user = await db.getUserById(req.user.id);
+    
+    // Criar ou atualizar cliente no Asaas
+    let customerId = user.asaas_customer_id;
+    if (!customerId) {
+      const customer = await asaasService.createCustomer(user);
+      customerId = customer.id;
+      await db.updateAsaasCustomerId(user.id, customerId);
+    }
+    
+    // Criar cobrança
+    const charge = await asaasService.createCharge(customerId, plan, paymentMethod);
+    
+    // Salvar no banco
+    await db.createPayment(
+      user.id,
+      charge.id,
+      plan,
+      charge.value,
+      paymentMethod,
+      charge.dueDate,
+      charge.bankSlipUrl || null,
+      charge.pixQrCodeBase64 || null
+    );
+    
+    console.log(`[ASSINATURA] Cobrança criada: ${charge.id} - ${plan} - ${paymentMethod}`);
+    
+    res.json({
+      success: true,
+      paymentId: charge.id,
+      amount: charge.value,
+      dueDate: charge.dueDate,
+      status: charge.status,
+      boletoUrl: charge.bankSlipUrl,
+      pixQrCode: charge.pixQrCodeBase64,
+      pixCopyPaste: charge.pixCopiaECola
+    });
+    
+  } catch (error) {
+    console.error('[ASSINATURA] Erro ao criar:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Buscar status da assinatura
+app.get('/api/subscription/status', authenticateToken, async (req, res) => {
+  try {
+    const user = await db.getUserById(req.user.id);
+    
+    res.json({
+      plan: user.plan,
+      status: user.subscription_status,
+      expiresAt: user.plan_expires_at,
+      lastPayment: user.last_payment_date
+    });
+    
+  } catch (error) {
+    console.error('[ASSINATURA] Erro ao buscar status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Histórico de pagamentos
+app.get('/api/subscription/payments', authenticateToken, async (req, res) => {
+  try {
+    const payments = await db.getUserPayments(req.user.id);
+    res.json({ payments });
+  } catch (error) {
+    console.error('[ASSINATURA] Erro ao buscar pagamentos:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Webhook Asaas (receber notificações de pagamento)
+app.post('/webhook/asaas', async (req, res) => {
+  try {
+    const { event, payment } = req.body;
+    
+    console.log(`[WEBHOOK ASAAS] Evento: ${event} - Pagamento: ${payment?.id}`);
+    
+    // Buscar pagamento no banco
+    const dbPayment = await db.getPaymentByAsaasId(payment.id);
+    if (!dbPayment) {
+      console.log('[WEBHOOK ASAAS] Pagamento não encontrado no banco');
+      return res.status(200).json({ received: true });
+    }
+    
+    // Processar eventos
+    switch (event) {
+      case 'PAYMENT_RECEIVED':
+      case 'PAYMENT_CONFIRMED':
+        // Pagamento confirmado - ativar plano
+        await db.updatePaymentStatus(payment.id, 'CONFIRMED', new Date().toISOString());
+        
+        // Calcular vencimento (30 dias)
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 30);
+        
+        // Atualizar plano do usuário
+        await db.updateUserPlan(dbPayment.user_id, dbPayment.plan, expiresAt.toISOString());
+        
+        console.log(`[WEBHOOK ASAAS] Plano ${dbPayment.plan} ativado para usuário ${dbPayment.user_id}`);
+        break;
+        
+      case 'PAYMENT_OVERDUE':
+        // Pagamento vencido
+        await db.updatePaymentStatus(payment.id, 'OVERDUE', null);
+        console.log(`[WEBHOOK ASAAS] Pagamento vencido: ${payment.id}`);
+        break;
+        
+      case 'PAYMENT_DELETED':
+        // Pagamento cancelado
+        await db.updatePaymentStatus(payment.id, 'CANCELED', null);
+        console.log(`[WEBHOOK ASAAS] Pagamento cancelado: ${payment.id}`);
+        break;
+    }
+    
+    res.status(200).json({ received: true });
+    
+  } catch (error) {
+    console.error('[WEBHOOK ASAAS] Erro:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+});
+
+// Listar blacklist (PREMIUM)
+app.get('/api/blacklist', authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const blacklist = await blacklistService.getBlacklist(req.user.id);
+    res.json({ blacklist });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Remover número da blacklist (PREMIUM)
+app.delete('/api/blacklist/:phone', authenticateToken, requirePremium, async (req, res) => {
+  try {
+    await blacklistService.removeFromBlacklist(req.user.id, req.params.phone);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
   console.log(`\n${'='.repeat(60)}`);
   console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
+  // Limpar locks órfãos no startup
   console.log(`📱 Acesse no navegador: http://localhost:${PORT}`);
+  
+  // Iniciar job de verificação de vencimentos
+  expirationJob.startExpirationJob();
   console.log(`${'='.repeat(60)}\n`);
 });
 
@@ -1634,3 +1999,277 @@ process.on('SIGINT', () => {
   console.log('\n👋 Encerrando servidor...');
   process.exit(0);
 });
+// Rota para obter dados do usuário
+app.get('/api/user', authenticateToken, async (req, res) => {
+  try {
+    const user = await db.getUserById(req.user.id);
+    res.json({ 
+      id: user.id, 
+      email: user.email, 
+      plan: user.plan,
+      plan_expires_at: user.plan_expires_at
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Desconectar WhatsApp
+app.post('/api/logout', authenticateToken, async (req, res) => {
+  try {
+    await whatsappManager.logoutSession(req.user.id);
+    res.json({ success: true, message: 'WhatsApp desconectado com sucesso' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ========== ROTAS PREMIUM - GOOGLE CONTACTS ==========
+const googleService = require('./google-contacts-service');
+const phoneNormalizer = require('./phone-normalizer');
+
+// Middleware verificar plano PREMIUM
+function requirePremium(req, res, next) {
+  if (req.user.plan !== 'PREMIUM') {
+    return res.status(403).json({ error: 'Recurso exclusivo do plano PREMIUM' });
+  }
+  next();
+}
+
+// Google OAuth - Iniciar autenticação
+app.get('/api/google/auth', authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const authUrl = await googleService.getAuthUrl(req.user.id);
+    res.json({ authUrl });
+  } catch (error) {
+    console.error('Erro ao gerar URL de autenticação:', error);
+    res.status(500).json({ error: 'Erro ao iniciar autenticação' });
+  }
+});
+
+// Google OAuth - Callback
+app.get('/api/google/callback', async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    const userId = parseInt(state);
+    
+    await googleService.handleCallback(code, userId);
+    
+    res.send('<script>window.close();</script><h1>Autorização concluída! Pode fechar esta janela.</h1>');
+  } catch (error) {
+    console.error('Erro no callback:', error);
+    res.status(500).send('Erro na autenticação');
+  }
+});
+
+// Google Contacts - Sincronizar
+app.post('/api/google/sync', authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const result = await googleService.syncContacts(req.user.id);
+    res.json(result);
+  } catch (error) {
+    console.error('Erro ao sincronizar contatos:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Processar números colados (PREMIUM)
+app.post('/api/contacts/process-paste', authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const { text, userDDD } = req.body;
+    const result = phoneNormalizer.processContactList(text, userDDD || '61');
+    
+    // Salvar contatos válidos no banco
+    if (result.valid && result.valid.length > 0) {
+      await saveManualContacts(req.user.id, result.valid);
+    }
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Erro ao processar contatos:', error);
+    res.status(500).json({ error: 'Erro ao processar lista' });
+  }
+});
+
+// Listar contatos do usuário
+
+// Criar sublista
+app.post('/api/contacts/lists', authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const { name, description, contactIds } = req.body;
+    
+    const result = await db.run(
+      'INSERT INTO contact_lists (user_id, name, description) VALUES (?, ?, ?)',
+      [req.user.id, name, description]
+    );
+    
+    const listId = result.lastID;
+    
+    if (contactIds && contactIds.length > 0) {
+      for (const contactId of contactIds) {
+        await db.run(
+          'INSERT OR IGNORE INTO contact_list_members (contact_id, list_id) VALUES (?, ?)',
+          [contactId, listId]
+        );
+      }
+    }
+    
+    res.json({ id: listId, name, description });
+  } catch (error) {
+    res.status(500).json({ error: 'Erro ao criar lista' });
+  }
+});
+
+// Listar sublistas
+
+
+// ========== ROTAS DE SUBLISTAS (PREMIUM) ==========
+
+// Listar todos os contatos do usuário
+app.get('/api/contacts', authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const { source, ddd, search } = req.query;
+    
+    let query = `SELECT id, name, phone, email, source, created_at
+                 FROM contacts
+                 WHERE user_id = ?`;
+    const params = [req.user.id];
+    
+    // Filtro por fonte
+    if (source) {
+      query += ` AND source = ?`;
+      params.push(source);
+    }
+    
+    // Filtro por DDD
+    if (ddd) {
+      query += ` AND (phone LIKE ? OR phone LIKE ?)`;
+      params.push(`${ddd}%`);
+      params.push(`+55${ddd}%`);
+    }
+    
+    // Busca por nome/telefone
+    if (search) {
+      query += ` AND (name LIKE ? OR phone LIKE ?)`;
+      params.push(`%${search}%`);
+      params.push(`%${search}%`);
+    }
+    
+    query += ` ORDER BY name ASC`;
+    
+    const contacts = await db.all(query, params);
+    res.json({ success: true, contacts, total: contacts.length });
+  } catch (error) {
+    console.error('Erro ao buscar contatos:', error);
+    res.status(500).json({ error: 'Erro ao buscar contatos' });
+  }
+});
+
+// Criar sublista
+app.post('/api/contacts/lists', authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const { name, description, contactIds } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: 'Nome da lista é obrigatório' });
+    }
+    
+    // Criar lista
+    const result = await db.run(
+      `INSERT INTO contact_lists (user_id, name, description) VALUES (?, ?, ?)`,
+      [req.user.id, name, description || '']
+    );
+    
+    const listId = result.lastID;
+    
+    // Adicionar contatos à lista
+    if (contactIds && contactIds.length > 0) {
+      for (const contactId of contactIds) {
+        await db.run(
+          `INSERT INTO contact_list_members (contact_id, list_id) VALUES (?, ?)`,
+          [contactId, listId]
+        );
+      }
+    }
+    
+    res.json({ success: true, listId, message: 'Lista criada com sucesso!' });
+  } catch (error) {
+    console.error('Erro ao criar lista:', error);
+    res.status(500).json({ error: 'Erro ao criar lista' });
+  }
+});
+
+// Listar sublistas do usuário
+app.get('/api/contacts/lists', authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const lists = await db.all(
+      `SELECT 
+        cl.id, 
+        cl.name, 
+        cl.description, 
+        cl.created_at,
+        COUNT(clm.contact_id) as contact_count
+       FROM contact_lists cl
+       LEFT JOIN contact_list_members clm ON cl.id = clm.list_id
+       WHERE cl.user_id = ?
+       GROUP BY cl.id
+       ORDER BY cl.created_at DESC`,
+      [req.user.id]
+    );
+    res.json({ success: true, lists });
+  } catch (error) {
+    console.error('Erro ao buscar listas:', error);
+    res.status(500).json({ error: 'Erro ao buscar listas' });
+  }
+});
+
+// Obter contatos de uma lista específica
+app.get('/api/contacts/lists/:listId', authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const { listId } = req.params;
+    
+    const contacts = await db.all(
+      `SELECT c.id, c.name, c.phone, c.email, c.source
+       FROM contacts c
+       INNER JOIN contact_list_members clm ON c.id = clm.contact_id
+       INNER JOIN contact_lists cl ON clm.list_id = cl.id
+       WHERE cl.id = ? AND cl.user_id = ?
+       ORDER BY c.name ASC`,
+      [listId, req.user.id]
+    );
+    
+    res.json({ success: true, contacts });
+  } catch (error) {
+    console.error('Erro ao buscar contatos da lista:', error);
+    res.status(500).json({ error: 'Erro ao buscar contatos' });
+  }
+});
+
+// Deletar sublista
+app.delete('/api/contacts/lists/:listId', authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const { listId } = req.params;
+    
+    // Verificar se a lista pertence ao usuário
+    const list = await db.get(
+      'SELECT id FROM contact_lists WHERE id = ? AND user_id = ?',
+      [listId, req.user.id]
+    );
+    
+    if (!list) {
+      return res.status(404).json({ error: 'Lista não encontrada' });
+    }
+    
+    // Deletar membros primeiro
+    await db.run('DELETE FROM contact_list_members WHERE list_id = ?', [listId]);
+    
+    // Deletar lista
+    await db.run('DELETE FROM contact_lists WHERE id = ?', [listId]);
+    
+    res.json({ success: true, message: 'Lista deletada com sucesso!' });
+  } catch (error) {
+    console.error('Erro ao deletar lista:', error);
+    res.status(500).json({ error: 'Erro ao deletar lista' });
+  }
+});
+

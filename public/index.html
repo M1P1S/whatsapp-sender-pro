@@ -6,6 +6,25 @@
   <title>WhatsApp Sender</title>
   <link rel="stylesheet" href="style.css">
   <style>
+/* SOLUÇÃO DEFINITIVA - Oculta TUDO até conectar */
+body:not(.whatsapp-connected) h2 {
+  display: none !important;
+}
+body:not(.whatsapp-connected) #qr-section h2 {
+  display: block !important;
+}
+body:not(.whatsapp-connected) h2:not(:first-of-type),
+body:not(.whatsapp-connected) .send-btn,
+body:not(.whatsapp-connected) #schedule-section,
+body:not(.whatsapp-connected) .upload-area,
+body:not(.whatsapp-connected) #media-upload-container,
+body:not(.whatsapp-connected) #upgrade-notice,
+body:not(.whatsapp-connected) #filter-duplicates-section,
+body:not(.whatsapp-connected) #send-mode-section,
+body:not(.whatsapp-connected) textarea,
+body:not(.whatsapp-connected) #progress {
+  display: none !important;
+}
     .navbar {
       background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
       color: white;
@@ -116,6 +135,34 @@
       cursor: pointer;
     }
   </style>
+<style>
+/* SOLUÇÃO DEFINITIVA - Oculta TUDO até conectar */
+body:not(.whatsapp-connected) h2 {
+  display: none !important;
+}
+body:not(.whatsapp-connected) #qr-section h2 {
+  display: block !important;
+}
+body:not(.whatsapp-connected) h2:not(:first-of-type),
+body:not(.whatsapp-connected) .send-btn,
+body:not(.whatsapp-connected) #schedule-section,
+body:not(.whatsapp-connected) .upload-area,
+body:not(.whatsapp-connected) #media-upload-container,
+body:not(.whatsapp-connected) #upgrade-notice,
+body:not(.whatsapp-connected) #filter-duplicates-section,
+body:not(.whatsapp-connected) #send-mode-section,
+body:not(.whatsapp-connected) textarea,
+body:not(.whatsapp-connected) #progress {
+  display: none !important;
+}
+/* UX Fix: Ocultar funcionalidades até conectar */
+#main-section {
+  display: none !important;
+}
+body.whatsapp-connected #main-section {
+  display: block !important;
+}
+</style>
 </head>
 <body>
   <div class="navbar">
@@ -138,7 +185,7 @@
       </div>
       <div id="upgrade-button" style="display: none;">
         <a href="/upgrade.html" style="background: #333; padding: 12px 25px; border-radius: 10px; text-decoration: none; color: white; font-weight: bold;">
-          💎 Fazer Upgrade
+          💎 Upgrade PRO ou PREMIUM
         </a>
       </div>
     </div>
@@ -146,13 +193,20 @@
     <header>
       <h1>📱 WhatsApp Sender</h1>
       <div style="display: flex; align-items: center; gap: 15px;">
-        <div id="status" class="status disconnected">Desconectado</div>
-        <button id="disconnectBtn" onclick="disconnectWhatsApp()" style="display: none; background: #f44336; padding: 10px 20px; font-size: 0.9em;">
-          🔌 Desconectar
-        </button>
+        <div style="display: flex; align-items: center; gap: 10px;"><div id="status" class="status disconnected">Desconectado</div><button id="disconnect-btn" onclick="disconnectWhatsApp()" style="display:none; padding: 6px 12px; background: #f44336; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 0.85em;">Desconectar</button></div>
       </div>
     </header>
-
+  
+  <div style="height: 45px;"></div> <!-- Espaço para banner fixo -->
+  <!-- BANNER UPGRADE PREMIUM (fixo no topo) -->
+  <div id="premium-upgrade-banner" style="display: none; position: fixed; top: 0; left: 0; right: 0; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 9999; font-size: 0.95em;">
+    <span style="opacity: 0.9;">⭐ Desbloqueie Google Contacts + Sublistas</span>
+    <a href="/upgrade.html" style="background: white; color: #667eea; padding: 6px 18px; border-radius: 20px; text-decoration: none; font-weight: bold; margin-left: 15px; font-size: 1em;">
+      Fazer Upgrade 🚀
+    </a>
+  </div>
+  
+  <!-- BANNER UPGRADE PREMIUM (apenas PRO) -->
     <div id="qr-section" class="section">
       <h2>1. Conecte seu WhatsApp</h2>
       <div id="qr-container">
@@ -161,14 +215,14 @@
       </div>
     </div>
 
-    <div id="main-section" class="section" style="display: none;">
+    <div id="main-section" class="section" >
       <h2>2. Importar Contatos</h2>
       <div class="upload-area">
         <input type="file" id="contactFile" accept=".csv,.xlsx,.txt">
         <button onclick="uploadContacts()">📂 Carregar Contatos</button>
       </div>
       
-      <div style="margin: 20px 0; padding: 15px; background: #f0f0f0; border-radius: 8px;">
+      <div id="test-section" style="margin: 20px 0; padding: 15px; background: #f0f0f0; border-radius: 8px;">
         <h3 style="margin-bottom: 10px;">🧪 Teste Individual</h3>
         <div style="display: flex; gap: 10px;">
           <input type="text" id="testNumber" placeholder="Ex: 5561999999999" style="flex: 1; padding: 10px; border: 2px solid #ddd; border-radius: 5px;">
@@ -179,27 +233,141 @@
       
       <div id="contacts-preview"></div>
 
+
+    <!-- SEÇÃO PREMIUM: Colar Números -->
+    <div id="premium-paste-section" style="display: none; margin-bottom: 20px;">
+      <h3>⭐ Colar Lista de Números (PREMIUM)</h3>
+      <textarea id="pasteNumbers" placeholder="Cole seus números aqui (qualquer formato):
++55 61 99999-9999
+(61) 98888-8888
+61 9 7777-7777
+96666-6666" style="width: 100%; height: 150px; margin: 10px 0;"></textarea>
+      <button onclick="processPastedNumbers()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">
+        🚀 Processar e Validar
+      </button>
+      <div id="pasteResult" style="margin-top: 10px;"></div>
+    </div>
+
+    <!-- SEÇÃO PREMIUM: Google Contacts -->
+    <div id="premium-google-section" style="display: none; margin-bottom: 20px;">
+    </div>
+    <div id="premium-sublists-section" style="display: none; margin-bottom: 20px;">
+      <h3>⭐ Gerenciar Sublistas (PREMIUM)</h3>
+      
+      <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+        <button onclick="openContactsManager()" style="background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin-right: 10px;">
+          📋 Ver Todos os Contatos
+        </button>
+        <button onclick="loadSublists()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">
+          📁 Minhas Sublistas
+        </button>
+      </div>
+      
+      <h3>⭐ Google Contacts (PREMIUM)</h3>
+      <button onclick="connectGoogle()" style="background: #4285f4; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px;">
+        📱 Conectar Google
+      </button>
+      <button onclick="syncGoogleContacts()" style="background: #34a853; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px;">
+        🔄 Sincronizar Contatos
+      </button>
+      <div id="googleResult" style="margin-top: 10px;"></div>
+
+    <!-- SEÇÃO PREMIUM: Gerenciar Sublistas -->
+    </div>
       <h2>3. Configurar Mensagem</h2>
       <textarea id="message" placeholder="Digite sua mensagem aqui..." rows="5"></textarea>
 
+      <!-- PREMIUM: Variações de Mensagem -->
+      <div id="variations-section" style="display: none; margin-top: 15px; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <h3 style="margin: 0; color: white;">✨ Variações de Mensagem (PREMIUM)</h3>
+          <span style="background: #FFD700; color: #333; padding: 4px 10px; border-radius: 5px; font-size: 0.85em; font-weight: bold;">PREMIUM</span>
+        </div>
+        <p style="color: rgba(255,255,255,0.9); font-size: 0.9em; margin: 0 0 15px 0;">
+          📝 Adicione até 5 variações da mensagem. O sistema rotaciona automaticamente para evitar detecção. Use <code style="background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 3px;">{nome}</code> para personalizar.
+        </p>
+        <div style="margin-bottom: 15px;">
+          <textarea id="variation-input" placeholder="Digite uma variação da mensagem...&#10;Exemplo: Olá {nome}! Como vai?" rows="2" style="width: 100%; padding: 10px; border: 2px solid white; border-radius: 5px; font-family: inherit;"></textarea>
+          <button onclick="addVariation()" style="margin-top: 8px; width: 100%; padding: 10px; background: white; color: #667eea; border: none; border-radius: 5px; font-weight: bold; cursor: pointer;">➕ Adicionar Variação</button>
+        </div>
+        <div id="variations-list" style="background: rgba(255,255,255,0.15); padding: 10px; border-radius: 5px; max-height: 200px; overflow-y: auto;">
+          <p style="color: rgba(255,255,255,0.7); text-align: center; margin: 0;">Nenhuma variação cadastrada</p>
+        </div>
+      </div>
+
+    <!-- SEÇÃO PREMIUM: Gerenciar Sublistas -->
+      <div id="sublistsContainer"></div>
+
+    <!-- MODAL: Gerenciador de Contatos -->
+
       <h2>3.1 Configurar Intervalo de Envio <span id="interval-pro-badge" style="display: none; background: #FFD700; color: #333; padding: 2px 8px; border-radius: 8px; font-size: 0.8em; margin-left: 8px; font-weight: bold;">(PRO)</span></h2>
-      <div id="interval-section" style="display: none; background: #f9f9f9; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
+
+      <!-- Escolha de Modo (PREMIUM) -->
+      <div id="interval-mode-choice" style="display: none; margin: 15px 0; padding: 15px; background: #f0f0f0; border-radius: 8px; border: 2px solid #667eea;">
+        <p style="margin: 0 0 10px 0; font-weight: 600; color: #333;">⚙️ Como deseja controlar os intervalos de envio?</p>
+        <div style="display: flex; gap: 15px;">
+          <label style="flex: 1; padding: 12px; background: white; border: 2px solid #ddd; border-radius: 8px; cursor: pointer; transition: all 0.3s;">
+            <input type="radio" name="intervalMode" value="manual" onchange="toggleIntervalMode('manual')" style="margin-right: 8px;">
+            <strong>📝 Modo Manual</strong><br>
+            <span style="font-size: 0.85em; color: #666;">Você define os intervalos min/max</span>
+          </label>
+          <label style="flex: 1; padding: 12px; background: white; border: 2px solid #ddd; border-radius: 8px; cursor: pointer; transition: all 0.3s;">
+            <input type="radio" name="intervalMode" value="antiban" onchange="toggleIntervalMode('antiban')" style="margin-right: 8px;" checked>
+            <strong>🛡️ Modo Anti-Ban (Recomendado)</strong><br>
+            <span style="font-size: 0.85em; color: #666;">Intervalos inteligentes pré-configurados</span>
+          </label>
+        </div>
+      </div>
+      <div id="interval-section" style=" background: #f9f9f9; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
         <label style="display: block; margin-bottom: 10px; font-weight: 500;">
           ⏱️ Intervalo entre mensagens (segundos):
         </label>
         <div style="display: flex; gap: 15px; align-items: center;">
           <div style="flex: 1;">
             <label style="font-size: 0.9em; color: #666;">Mínimo:</label>
-            <input type="number" id="minInterval" value="2" min="1" max="60" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; margin-top: 5px;">
+            <input type="number" id="minInterval" value="30" min="1" max="60" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; margin-top: 5px;">
           </div>
           <div style="flex: 1;">
             <label style="font-size: 0.9em; color: #666;">Máximo:</label>
-            <input type="number" id="maxInterval" value="4" min="1" max="60" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; margin-top: 5px;">
+            <input type="number" id="maxInterval" value="45" min="1" max="60" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; margin-top: 5px;">
           </div>
         </div>
         <p style="font-size: 0.85em; color: #666; margin-top: 10px;">
-          ⚠️ Recomendado: 2-4 segundos para evitar bloqueio do WhatsApp
+          ⚠️ Recomendado: 30-45 segundos para evitar bloqueio do WhatsApp
         </p>
+      </div>
+      <div style="margin: 20px 0; padding: 15px; background: #f0f8ff; border-left: 4px solid #4CAF50; border-radius: 5px;">
+        <label style="display: flex; align-items: center; cursor: pointer; font-size: 1em;">
+      
+      <!-- PREMIUM: Modo de Envio Anti-Ban -->
+        </p>
+      
+      <!-- PREMIUM: Modo Anti-Ban (Compacto) -->
+      <div id="send-mode-section" style="display: none; margin: 20px 0 10px 0;">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+          <label style="font-weight: 600; color: #333; font-size: 0.95em;">
+            🛡️ Modo Anti-Ban:
+          </label>
+          <span style="background: #FFD700; color: #333; padding: 2px 8px; border-radius: 8px; font-size: 0.75em; font-weight: bold;">PREMIUM</span>
+        </div>
+        
+        <select id="sendMode" onchange="updateModeInfoDisplay()" style="width: 100%; padding: 10px; border: 2px solid #667eea; border-radius: 5px; background: white; font-size: 0.95em; cursor: pointer;">
+          <option value="SEGURO">🐢 SEGURO (60-120s) - Máxima proteção</option>
+          <option value="NORMAL" selected>⚖️ NORMAL (30-60s) - Equilibrado</option>
+          <option value="TURBO">🚀 TURBO (15-30s) - Risco alto ⚠️</option>
+        </select>
+        
+        <div id="mode-info" style="margin-top: 8px; padding: 8px; background: #f0f0f0; border-left: 3px solid #667eea; border-radius: 3px; font-size: 0.85em; color: #666;">
+          <strong>⚖️ Modo NORMAL:</strong> Intervalo 30-60s • Risco baixo • ~80 msgs/hora
+        </div>
+      </div>
+      </div>
+      
+          <input type="checkbox" id="removeDuplicates" onchange="toggleRemoveDuplicates()" style="width: 20px; height: 20px; margin-right: 10px; cursor: pointer;">
+          <span style="font-weight: 500;">Remover contatos duplicados automaticamente</span>
+          <span style="background: #FFD700; color: #333; padding: 2px 8px; border-radius: 8px; font-size: 0.75em; margin-left: 8px; font-weight: bold;">PRO</span>
+        </label>
+        <p style="margin: 10px 0 0 30px; font-size: 0.85em; color: #666;">Remove números repetidos</p>
       </div>
       
       <h2>4. Adicionar Mídia <span id="pro-only-badge" style="display: none;">(PRO)</span></h2>
@@ -232,7 +400,7 @@
       <button class="send-btn" onclick="sendMessages()">🚀 Enviar Agora</button>
       
       <!-- Agendamento PRO -->
-      <div id="schedule-section" style="display: none; margin-top: 20px; padding: 20px; background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%); border-radius: 15px;">
+      <div id="schedule-section" style=" margin-top: 20px; padding: 20px; background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%); border-radius: 15px;">
         <h3 style="margin-bottom: 15px; color: #333;">📅 Agendar Envio (PRO)</h3>
         <div style="display: flex; gap: 15px; margin-bottom: 15px;">
           <div style="flex: 1;">
@@ -256,5 +424,93 @@
   <script src="app-auth.js"></script>
   <!-- [SINGLE-SESSION:UI] Sistema de verificação de sessão única -->
 <script src="/qrcode.min.js"></script>
+
+    <!-- MODAL: Gerenciador de Contatos MELHORADO -->
+    <div id="contactsModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; overflow-y: auto;">
+      <div style="background: white; margin: 30px auto; max-width: 1000px; border-radius: 10px; padding: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+        
+        <!-- Cabeçalho -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 2px solid #e5e7eb;">
+          <h2 style="margin: 0; color: #1f2937;">📋 Gerenciar Contatos</h2>
+          <button onclick="closeContactsModal()" style="background: #ef4444; color: white; padding: 8px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">✕ Fechar</button>
+        </div>
+        
+        <!-- Filtros -->
+        <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+            
+            <!-- Busca -->
+            <div>
+              <label style="display: block; font-weight: 600; color: #333; margin-bottom: 5px;">🔍 Buscar:</label>
+              <input type="text" id="searchContacts" placeholder="Nome ou telefone..." 
+                style="width: 100%; padding: 10px; border: 2px solid #d1d5db; border-radius: 5px;" onkeyup="filterContacts()">
+            </div>
+            
+            <!-- Filtro por DDD -->
+            <div>
+              <label style="display: block; font-weight: 600; color: #333; margin-bottom: 5px;">📍 DDD:</label>
+              <select id="filterDDD" onchange="filterContacts()" style="width: 100%; padding: 10px; border: 2px solid #d1d5db; border-radius: 5px;">
+                <option value="">Todos os DDDs</option>
+              </select>
+            </div>
+            
+            <!-- Filtro por Fonte -->
+            <div>
+              <label style="display: block; font-weight: 600; color: #333; margin-bottom: 5px;">📁 Fonte:</label>
+              <select id="filterSource" onchange="filterContacts()" style="width: 100%; padding: 10px; border: 2px solid #d1d5db; border-radius: 5px;">
+                <option value="">Todas as fontes</option>
+                <option value="google">Google Contacts</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+            
+            <!-- Seleção por Página -->
+            <div>
+              <label style="display: block; font-weight: 600; color: #333; margin-bottom: 5px;">📄 Mostrar:</label>
+              <select id="pageSize" onchange="changePageSize()" style="width: 100%; padding: 10px; border: 2px solid #d1d5db; border-radius: 5px;">
+                <option value="50">50 contatos</option>
+                <option value="100">100 contatos</option>
+                <option value="250">250 contatos</option>
+                <option value="500">500 contatos</option>
+                <option value="all">Todos</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Ações Rápidas -->
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;">
+          <button onclick="selectCurrentPage()" style="background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%); color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">
+            📄 Selecionar Esta Página
+          </button>
+          <button onclick="selectAllContacts()" style="background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">
+            ✓ Selecionar Todos
+          </button>
+          <button onclick="deselectAllContacts()" style="background: #666; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">
+            ✗ Desmarcar Todos
+          </button>
+          <button onclick="selectCurrentDDD()" style="background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">
+            📍 Selecionar DDD Filtrado
+          </button>
+          <button onclick="createSublistFromSelected()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">
+            ➕ Criar Sublista
+          </button>
+        </div>
+        
+        <!-- Contador -->
+        <div id="selectedCount" style="background: #f0f0f0; padding: 12px; border-radius: 5px; margin-bottom: 15px; font-weight: 600; color: #128C7E; text-align: center;"></div>
+        
+        <!-- Paginação -->
+        <div id="paginationInfo" style="background: #f9f9f9; padding: 10px; border-radius: 5px; margin-bottom: 15px; text-align: center; font-weight: 600; color: #666;"></div>
+        
+        <!-- Lista de Contatos -->
+        <div id="contactsList" style="max-height: 450px; overflow-y: auto; border: 2px solid #e5e7eb; border-radius: 8px; padding: 15px; background: white;"></div>
+        
+        <!-- Navegação de Páginas -->
+        <div id="paginationControls" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;"></div>
+      </div>
+    </div>
+
+<script>
 </body>
 </html>

@@ -20,7 +20,7 @@ async function fetchQRCode() {
       return;
     }
     
-    const response = await fetch('https://whatsapp-sender.duckdns.org/api/qrcode', {
+    const response = await fetch('/api/qrcode', {
       headers: { 'Authorization': 'Bearer ' + token }
     });
     

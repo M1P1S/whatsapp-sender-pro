@@ -137,6 +137,7 @@ async function createSession(userId) {
       }),
       puppeteer: {
         headless: true,
+        executablePath: "/usr/bin/google-chrome-stable",
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -310,10 +311,16 @@ async function logoutSession(userId) {
  * Formata número de telefone
  */
 function formatPhoneNumber(number) {
-  let cleaned = String(number).replace(/\D/g, '');
-  if (cleaned.startsWith('0')) cleaned = cleaned.substring(1);
-  if (!cleaned.startsWith('55') && cleaned.length >= 10) cleaned = '55' + cleaned;
-  return cleaned + '@c.us';
+  let cleaned = String(number).replace(/\D/g, "");
+  if (cleaned.startsWith("0")) cleaned = cleaned.substring(1);
+  if (cleaned.startsWith("55")) cleaned = cleaned.substring(2);
+  if (cleaned.length === 11) {
+    const ddd = cleaned.substring(0, 2);
+    const numero = cleaned.substring(3);
+    cleaned = ddd + numero;
+  }
+  if (cleaned.length >= 10) cleaned = "55" + cleaned;
+  return cleaned + "@c.us";
 }
 
 /**
@@ -371,13 +378,13 @@ async function sendMessage(userId, number, text, mediaPath = null, mediaType = n
     }
 
     // SEM MÍDIA
-    if (!mediaPath || !fs.existsSync(mediaPath)) {
-      if (!text) throw new Error('Sem texto nem mídia');
-      await client.sendMessage(chatId, text);
-      console.log(`[MULTI-SESSION] User ${userId} enviou texto para ${number}`);
-      updateSessionActivity(userId);
-      return true;
-    }
+   // SEM MÍDIA
+	if (!mediaPath || !fs.existsSync(mediaPath)) {
+	  if (!text) throw new Error('Sem texto nem mídia');
+          await client.sendMessage(chatId, text, { sendSeen: false });
+          console.log(`[MULTI-SESSION] ✅ User ${userId} enviou texto para ${number}`);
+	  return true;
+	}
 
     // COM MÍDIA
     const fileSize = fs.statSync(mediaPath).size;
@@ -389,35 +396,54 @@ async function sendMessage(userId, number, text, mediaPath = null, mediaType = n
 
     // VÍDEOS - SEMPRE COMO DOCUMENTO
     if (mediaType === 'video' || ['.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv', '.3gp'].includes(ext)) {
-      let caption = '▶️ Vídeo\n\n';
-      if (text) {
-        caption = text + '\n\n▶️ Clique para assistir';
-      } else {
-        caption = '▶️ Vídeo anexado\n▶️ Clique para assistir';
+      try {
+        await client.sendMessage(chatId, media, { sendSeen: false, caption: text || undefined });
+      } catch (error) {
+        if (error.message && error.message.includes('markedUnread')) {
+          console.log(`[MULTI-SESSION] Ignorando erro markedUnread - vídeo enviado`);
+        } else {
+          throw error;
+        }
       }
-
-      await client.sendMessage(chatId, media, {
-        caption: caption,
-        sendMediaAsDocument: true
-      });
       console.log(`[MULTI-SESSION] User ${userId} enviou vídeo para ${number}`);
     }
     // IMAGENS
     else if (mediaType === 'image' || ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) {
-      await client.sendMessage(chatId, media, { caption: text || undefined });
+      try {
+        await client.sendMessage(chatId, media, { sendSeen: false, caption: text || undefined });
+      } catch (error) {
+        if (error.message && error.message.includes('markedUnread')) {
+          console.log(`[MULTI-SESSION] Ignorando erro markedUnread - imagem enviada`);
+        } else {
+          throw error;
+        }
+      }
       console.log(`[MULTI-SESSION] User ${userId} enviou imagem para ${number}`);
     }
     // ÁUDIO
     else if (mediaType === 'audio' || ['.mp3', '.ogg', '.wav'].includes(ext)) {
-      await client.sendMessage(chatId, media, { sendAudioAsVoice: true });
+      try {
+        await client.sendMessage(chatId, media, { sendSeen: false, sendAudioAsVoice: true });
+      } catch (error) {
+        if (error.message && error.message.includes('markedUnread')) {
+          console.log(`[MULTI-SESSION] Ignorando erro markedUnread - áudio enviado`);
+        } else {
+          throw error;
+        }
+      }
       console.log(`[MULTI-SESSION] User ${userId} enviou áudio para ${number}`);
     }
     // DOCUMENTOS
     else {
-      await client.sendMessage(chatId, media, {
-        caption: text || undefined,
-        sendMediaAsDocument: true
-      });
+      try {
+        await client.sendMessage(chatId, media, { sendSeen: false, caption: text || undefined, sendMediaAsDocument: true });
+      } catch (error) {
+        if (error.message && error.message.includes('markedUnread')) {
+          console.log(`[MULTI-SESSION] Ignorando erro markedUnread - documento enviado`);
+        } else {
+          throw error;
+        }
+      }
       console.log(`[MULTI-SESSION] User ${userId} enviou documento para ${number}`);
     }
 

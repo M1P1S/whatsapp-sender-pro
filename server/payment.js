@@ -243,7 +243,7 @@ async function createPixPayment(userId, userEmail, userName, planType, amount) {
 async function createPaymentPreference(userId, userEmail, userName, planType, months) {
   try {
     console.log(`💳 Criando link de pagamento (Cartão) para: ${userEmail}`);
-    const amount = planType === 'yearly' ? 999.00 : 99.90;
+    const amount = planType === 'yearly' ? 999.00 : (planType === 'premium' ? 199.90 : 99.90);
     const payment = await createPayment(userId, userEmail, userName, planType, amount);
 
     return {

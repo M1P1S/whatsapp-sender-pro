@@ -149,16 +149,25 @@
     .btn-upgrade:hover {
       transform: scale(1.05);
     }
+  
+  <!-- BANNER UPGRADE PREMIUM (fixo no topo) -->
+  <div id="premium-upgrade-banner" style="display: none; position: fixed; top: 0; left: 0; right: 0; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 9999; font-size: 0.95em;">
+    <span style="opacity: 0.9;">⭐ Desbloqueie Google Contacts + Sublistas</span>
+    <a href="/upgrade.html" style="background: white; color: #667eea; padding: 6px 18px; border-radius: 20px; text-decoration: none; font-weight: bold; margin-left: 15px; font-size: 1em;">
+      Fazer Upgrade 🚀
+    </a>
+  </div>
 
     .history-section {
       margin-top: 40px;
     }
 
     .history-table {
+      max-height: 400px;
+      overflow-y: auto;
       width: 100%;
       background: white;
       border-radius: 15px;
-      overflow: hidden;
       box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
     }
 
@@ -242,6 +251,15 @@
 </head>
 
 <body>
+  
+  <div style="height: 45px;"></div> <!-- Espaço para banner fixo -->
+  <!-- BANNER UPGRADE PREMIUM (fixo no topo) -->
+  <div id="premium-upgrade-banner" style="display: none; position: fixed; top: 0; left: 0; right: 0; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 9999; font-size: 0.95em;">
+    <span style="opacity: 0.9;">⭐ Desbloqueie Google Contacts + Sublistas</span>
+    <a href="/upgrade.html" style="background: white; color: #667eea; padding: 6px 18px; border-radius: 20px; text-decoration: none; font-weight: bold; margin-left: 15px; font-size: 1em;">
+      Fazer Upgrade 🚀
+    </a>
+  </div>
   <div class="navbar">
     <div class="navbar-brand">📱 WhatsApp Sender PRO</div>
     <div class="navbar-user">
@@ -282,7 +300,7 @@
     <!-- Upgrade Banner (apenas FREE) -->
     <div id="upgrade-banner" class="upgrade-banner" style="display: none;">
       <div>
-        <h2>💎 Faça Upgrade para PRO</h2>
+        <h2>💎 Upgrade para PRO ou PREMIUM</h2>
         <p>Ilimitado o envio de imagens, vídeos e você pode realizar agendamentos!</p>
       </div>
 
@@ -411,7 +429,16 @@
         document.getElementById("user-name").textContent = data.user.name || "Usuário";
 
         const planBadge = document.getElementById("plan-badge");
-        const isPro = data.user.plan === "PRO";
+        const isPro = data.user.plan === "PRO" || data.user.plan === "PREMIUM";
+        // Controlar banner upgrade PREMIUM (apenas PRO)
+        const premiumBanner = document.getElementById("premium-upgrade-banner");
+        if (premiumBanner) {
+          if (data.user.plan === "PRO") {
+            premiumBanner.style.display = "block";
+          } else {
+            premiumBanner.style.display = "none";
+          }
+        }
 
         // ⭐ ITEM 3: Atualizar visibilidade do botão PDF
         updateExportPDFVisibility(isPro);
@@ -503,7 +530,9 @@
 
     async function loadWhatsappStatus() {
       try {
-        const response = await fetch(`${API_URL}/api/whatsapp/status`);
+        const response = await fetch(`${API_URL}/api/status`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+        });
         const data = await response.json();
 
         const el = document.getElementById("whatsapp-status");
@@ -581,7 +610,7 @@
     // ===============================
     async function loadSchedules() {
       // Só carregar se for PRO
-      if (!currentUser || currentUser.plan !== 'PRO') {
+      if (!currentUser || currentUser.plan !== 'PRO' && currentUser.plan !== 'PREMIUM') {
         console.log('ℹ️ Usuário FREE - agendamentos não disponíveis');
         return;
       }

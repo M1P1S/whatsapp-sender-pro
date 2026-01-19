@@ -169,31 +169,33 @@
     </div>
 
     <!-- Plano Anual -->
-    <div class="plan-card" style="border: 3px solid #FFD700;">
-      <div style="background: #FFD700; color: #333; padding: 8px; border-radius: 8px; margin: -25px -25px 15px -25px; font-weight: bold;">
-        MELHOR OFERTA
+    <div class="plan-card" style="border: 3px solid #667eea;">
+      <div style="background: #FFD700; color: white; padding: 8px; border-radius: 8px; margin: -25px -25px 15px -25px; font-weight: bold;">
+        ⭐ MELHOR OFERTA - PREMIUM
       </div>
       
-      <h3>Plano Anual</h3>
-      <p class="price">R$ 999,00</p>
+      <h3>Plano Premium</h3>
+      <p class="price">R$ 199,90</p>
       <p style="color: #25D366; font-weight: bold; margin: -15px 0 20px 0;">
-        Economize R$ 199,80!
+        Todas as funcionalidades PRO +
       </p>
       
       <div class="feature-list">
-        <div class="feature-item">Envio ilimitado</div>
-        <div class="feature-item">Envio de imagens</div>
-        <div class="feature-item">Envio de áudios</div>
-        <div class="feature-item">Envio de videos</div>
-        <div class="feature-item">Agendamentos ilimitados</div>
-        <div class="feature-item">Relatorios avançados</div>
-        <div class="feature-item">Suporte prioritario</div>
+        <div class="feature-item">✅ Tudo do plano PRO</div>
+        <div class="feature-item">🛡️ Sistema Anti-Ban (3 modos)</div>
+        <div class="feature-item">🔄 Variações de Mensagem (até 5)</div>
+        <div class="feature-item">⚙️ Controle de Intervalo Inteligente</div>
+        <div class="feature-item">📇 Google Contacts integrado</div>
+        <div class="feature-item">📋 Colar lista de números</div>
+        <div class="feature-item">📁 Sistema de sublistas</div>
+        <div class="feature-item">🔍 Filtros avançados por DDD</div>
+        <div class="feature-item">💾 Gerenciar contatos</div>
       </div>
 
-      <button class="btn-pro" onclick="initiatePayment('yearly', 'card')">
+      <button class="btn-pro" onclick="initiatePayment('premium', 'card')">
         Pagar com Cartão
       </button>
-      <button class="btn-pro btn-pix" onclick="initiatePayment('yearly', 'pix')">
+      <button class="btn-pro btn-pix" onclick="initiatePayment('premium', 'pix')">
         Pagar com PIX
       </button>
     </div>
@@ -310,7 +312,7 @@
       modal.className = 'modal show';
       modal.innerHTML = `
         <div class="modal-content">
-          <h2 style="text-align: center; color: #333;">Pagamento via PIX</h2>
+          <h2 style="text-align: center; color: white;">Pagamento via PIX</h2>
           <p style="text-align: center; color: #666; margin-bottom: 20px;">
             Escaneie o QR Code com o app do seu banco
           </p>
@@ -436,7 +438,7 @@
             <div style="border: 4px solid #f3f3f3; border-top: 4px solid #25D366; 
                         border-radius: 50%; width: 50px; height: 50px; 
                         animation: spin 1s linear infinite; margin: 0 auto 20px;"></div>
-            <p style="color: #333; font-size: 16px;">${message}</p>
+            <p style="color: white; font-size: 16px;">${message}</p>
           </div>
         `;
         document.body.appendChild(loader);
