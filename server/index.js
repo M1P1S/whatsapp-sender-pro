@@ -491,13 +491,21 @@ setInterval(async () => {
         await db.updateScheduleStatus(schedule.id, 'processing');
 
         const contacts = JSON.parse(schedule.contacts);
+        
+        // [BLACKLIST] Filtrar números inválidos
+        const originalCount = contacts.length;
+        const validContacts = await db.filterValidContacts(contacts);
+        const filteredCount = originalCount - validContacts.length;
+        if (filteredCount > 0) {
+          console.log(`[BLACKLIST] Filtrados ${filteredCount} números inválidos do agendamento ${schedule.id}`);
+        }
         const results = [];
         let successCount = 0;
         let errorCount = 0;
 
         console.log(`[MULTI-SESSION] Agendamento ${schedule.id} - User ${userId} enviando para ${contacts.length} contatos`);
 
-        for (const contact of contacts) {
+        for (const contact of validContacts) {
           try {
             // Usar intervalos salvos no banco (em segundos)
             const minMs = (schedule.min_interval || 30) * 1000;
@@ -505,13 +513,37 @@ setInterval(async () => {
             const delay = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
             
             console.log(`[MULTI-SESSION] Aguardando ${Math.round(delay/1000)}s antes do próximo envio...`);
+            
+            // [VARIAÇÕES] Aplicar variação se PREMIUM nos agendamentos
+            let finalMessage = schedule.message;
+            const user = await db.getUserById(userId);
+            if (user && user.plan === "PREMIUM") {
+              const variationObj = await db.getNextMessageVariation(userId);
+              if (variationObj && variationObj.variation_text) {
+                const variations = variationObj.variation_text.split(',').map(v => v.trim());
+                const randomVariation = variations[Math.floor(Math.random() * variations.length)];
+                const words = schedule.message.trim().split(/\s+/);
+                if (words.length > 0) {
+                  const originalFirst = words[0];
+                  words[0] = randomVariation;
+                  finalMessage = words.join(' ');
+                  console.log(`[VARIAÇÃO-AGENDAMENTO] User ${userId}: "${originalFirst}" → "${randomVariation}"`);
+                }
+              }
+            }
+            
             await new Promise(resolve => setTimeout(resolve, delay));
-            await whatsappManager.sendMessage(userId, contact, schedule.message, schedule.media_path, schedule.media_type);
+            await whatsappManager.sendMessage(userId, contact, finalMessage, schedule.media_path, schedule.media_type);
             results.push({ contact, success: true });
             successCount++;
           } catch (error) {
             results.push({ contact, success: false, error: error.message });
             errorCount++;
+            // Adicionar à blacklist se número inválido
+            if (error.message && error.message.includes("não existe no WhatsApp")) {
+              await db.addInvalidNumber(contact, userId, error.message);
+              console.log(`[BLACKLIST] Número ${contact} adicionado à blacklist`);
+            }
           }
         }
 
@@ -1485,6 +1517,11 @@ app.post('/api/send', authenticateToken, upload.single('media'), async (req, res
       } catch (error) {
         results.push({ contact, success: false, error: error.message });
         errorCount++;
+            // Adicionar à blacklist se número inválido
+            if (error.message && error.message.includes("não existe no WhatsApp")) {
+              await db.addInvalidNumber(contact, userId, error.message);
+              console.log(`[BLACKLIST] Número ${contact} adicionado à blacklist`);
+            }
         console.error(`[MULTI-SESSION] User ${userId} falha para ${contact}:`, error.message);
       }
     }

@@ -984,6 +984,45 @@ async function getUserPayments(userId) {
     );
   });
 }
+
+// ========== BLACKLIST DE NÚMEROS INVÁLIDOS ==========
+async function addInvalidNumber(number, userId, reason = 'não existe no WhatsApp') {
+  return new Promise((resolve, reject) => {
+    db.run(
+      "INSERT OR IGNORE INTO invalid_numbers (number, user_id, reason) VALUES (?, ?, ?)",
+      [number, userId, reason],
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      }
+    );
+  });
+}
+
+async function isNumberInvalid(number) {
+  return new Promise((resolve, reject) => {
+    db.get(
+      "SELECT number FROM invalid_numbers WHERE number = ?",
+      [number],
+      (err, row) => {
+        if (err) reject(err);
+        else resolve(!!row);
+      }
+    );
+  });
+}
+
+async function filterValidContacts(contacts) {
+  const valid = [];
+  for (const contact of contacts) {
+    const isInvalid = await isNumberInvalid(contact);
+    if (!isInvalid) {
+      valid.push(contact);
+    }
+  }
+  return valid;
+}
+
 module.exports = {
   ...module.exports,
   getUserSendMode,
@@ -1001,5 +1040,8 @@ module.exports = {
   getExpiredUsers,
   downgradeToFree,
   updateAsaasCustomerId,
-  getUserPayments
+  getUserPayments,
+  addInvalidNumber,
+  isNumberInvalid,
+  filterValidContacts
 };
