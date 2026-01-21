@@ -1023,6 +1023,34 @@ async function filterValidContacts(contacts) {
   return valid;
 }
 
+
+// ========== PAUSAS LONGAS ==========
+async function getUserLongPausesConfig(userId) {
+  return new Promise((resolve, reject) => {
+    db.get(
+      "SELECT enable_long_pauses, pause_after_messages, pause_duration_minutes FROM users WHERE id = ?",
+      [userId],
+      (err, row) => {
+        if (err) reject(err);
+        else resolve(row || { enable_long_pauses: 0, pause_after_messages: 100, pause_duration_minutes: 10 });
+      }
+    );
+  });
+}
+
+async function updateUserLongPausesConfig(userId, enabled, afterMessages, durationMinutes) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      "UPDATE users SET enable_long_pauses = ?, pause_after_messages = ?, pause_duration_minutes = ? WHERE id = ?",
+      [enabled ? 1 : 0, afterMessages, durationMinutes, userId],
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      }
+    );
+  });
+}
+
 module.exports = {
   ...module.exports,
   getUserSendMode,
@@ -1043,5 +1071,7 @@ module.exports = {
   getUserPayments,
   addInvalidNumber,
   isNumberInvalid,
-  filterValidContacts
+  filterValidContacts,
+  getUserLongPausesConfig,
+  updateUserLongPausesConfig
 };

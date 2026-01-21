@@ -362,6 +362,50 @@ body.whatsapp-connected #main-section {
         </div>
       </div>
       </div>
+      <!-- ========== PAUSAS LONGAS (PREMIUM) ========== -->
+      <div id="long-pauses-section" style="display: none; margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #7C3AED;">
+        <label style="display: flex; align-items: center; cursor: pointer; margin-bottom: 10px;">
+          <input type="checkbox" id="enable-long-pauses" onchange="toggleLongPauses()" style="width: 20px; height: 20px; margin-right: 10px; cursor: pointer;">
+          <span style="font-weight: 600; color: #333;">⏸️ Pausas Longas (Proteção Extra)</span>
+          <span style="background: #FFD700; color: #333; padding: 2px 8px; border-radius: 8px; font-size: 0.75em; margin-left: 8px; font-weight: bold;">PREMIUM</span>
+        </label>
+        <p style="margin: 8px 0 12px 32px; font-size: 13px; color: #666;">
+          Adiciona pausas estratégicas durante os envios para simular comportamento humano
+        </p>
+        
+        <div id="long-pauses-config" style="margin-left: 32px; display: none;">
+          <div style="margin-bottom: 12px;">
+            <label style="font-size: 13px; color: #555; display: block; margin-bottom: 5px;">A cada quantas mensagens pausar?</label>
+            <select id="pause-after" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; width: 100%; max-width: 300px;">
+              <option value="50">50 mensagens</option>
+              <option value="100" selected>100 mensagens ⭐ Recomendado</option>
+              <option value="150">150 mensagens</option>
+              <option value="200">200 mensagens</option>
+              <option value="300">300 mensagens</option>
+              <option value="500">500 mensagens</option>
+              <option value="700">700 mensagens</option>
+              <option value="1000">1000 mensagens</option>
+            </select>
+          </div>
+          
+          <div style="margin-bottom: 12px;">
+            <label style="font-size: 13px; color: #555; display: block; margin-bottom: 5px;">Pausar por quantos minutos?</label>
+            <select id="pause-duration" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; width: 100%; max-width: 300px;">
+              <option value="5">5 minutos</option>
+              <option value="10" selected>10 minutos ⭐ Recomendado</option>
+              <option value="15">15 minutos</option>
+              <option value="30">30 minutos</option>
+              <option value="60">60 minutos (1h)</option>
+              <option value="90">90 minutos (1h30)</option>
+              <option value="120">120 minutos (2h)</option>
+            </select>
+          </div>
+          
+          <div style="background: #E3F2FD; padding: 10px; border-radius: 6px; border-left: 3px solid #2196F3;">
+            <p style="margin: 0; font-size: 12px; color: #1565C0;">💡 <strong>Dica:</strong> Para contas novas ou recém-banidas, use intervalos menores (100 msgs / 15 min)</p>
+          </div>
+        </div>
+      </div>
       
           <input type="checkbox" id="removeDuplicates" onchange="toggleRemoveDuplicates()" style="width: 20px; height: 20px; margin-right: 10px; cursor: pointer;">
           <span style="font-weight: 500;">Remover contatos duplicados automaticamente</span>
@@ -421,7 +465,7 @@ body.whatsapp-connected #main-section {
     </div>
   </div>
 
-  <script src="app-auth.js"></script>
+  <script src="app-auth.js?v=1769011409"></script>
   <!-- [SINGLE-SESSION:UI] Sistema de verificação de sessão única -->
 <script src="/qrcode.min.js"></script>
 

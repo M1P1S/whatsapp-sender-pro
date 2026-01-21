@@ -536,6 +536,14 @@ setInterval(async () => {
             await whatsappManager.sendMessage(userId, contact, finalMessage, schedule.media_path, schedule.media_type);
             results.push({ contact, success: true });
             successCount++;
+        messagesSent++;
+        // [PAUSAS LONGAS] Verificar se precisa pausar
+        if (user.plan === "PREMIUM" && pauseConfig.enable_long_pauses && messagesSent % pauseConfig.pause_after_messages === 0) {
+          const pauseMs = pauseConfig.pause_duration_minutes * 60 * 1000;
+          console.log(`[PAUSAS LONGAS] User ${userId}: Enviadas ${messagesSent} mensagens. Pausando por ${pauseConfig.pause_duration_minutes} minutos...`);
+          await new Promise(resolve => setTimeout(resolve, pauseMs));
+          console.log(`[PAUSAS LONGAS] User ${userId}: Retomando envios...`);
+        }
           } catch (error) {
             results.push({ contact, success: false, error: error.message });
             errorCount++;
@@ -1472,6 +1480,9 @@ app.post('/api/send', authenticateToken, upload.single('media'), async (req, res
     let errorCount = 0;
 
     console.log(`[MULTI-SESSION] User ${userId} iniciando envio para ${contactList.length} contatos`);
+    // [PAUSAS LONGAS] Buscar configuração se PREMIUM
+    const pauseConfig = await db.getUserLongPausesConfig(userId);
+    let messagesSent = 0;
 
     for (const contact of contactList) {
       try {
@@ -1514,6 +1525,14 @@ app.post('/api/send', authenticateToken, upload.single('media'), async (req, res
         await whatsappManager.sendMessage(userId, contact, finalMessage, mediaPath, mediaType);
         results.push({ contact, success: true });
         successCount++;
+        messagesSent++;
+        // [PAUSAS LONGAS] Verificar se precisa pausar
+        if (user.plan === "PREMIUM" && pauseConfig.enable_long_pauses && messagesSent % pauseConfig.pause_after_messages === 0) {
+          const pauseMs = pauseConfig.pause_duration_minutes * 60 * 1000;
+          console.log(`[PAUSAS LONGAS] User ${userId}: Enviadas ${messagesSent} mensagens. Pausando por ${pauseConfig.pause_duration_minutes} minutos...`);
+          await new Promise(resolve => setTimeout(resolve, pauseMs));
+          console.log(`[PAUSAS LONGAS] User ${userId}: Retomando envios...`);
+        }
       } catch (error) {
         results.push({ contact, success: false, error: error.message });
         errorCount++;
@@ -1856,6 +1875,41 @@ app.put("/api/interval-mode", authenticateToken, async (req, res) => {
     console.error("[INTERVAL-MODE] Erro ao atualizar:", error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// ========== PAUSAS LONGAS (PREMIUM) ==========
+app.get("/api/long-pauses", authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const config = await db.getUserLongPausesConfig(userId);
+    res.json(config);
+  } catch (error) {
+    console.error("[PAUSAS] Erro ao buscar:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/long-pauses", authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { enabled, afterMessages, durationMinutes } = req.body;
+    
+    // Validações
+    if (afterMessages < 50 || afterMessages > 1000) {
+      return res.status(400).json({ error: "afterMessages deve estar entre 50 e 1000" });
+    }
+    if (durationMinutes < 5 || durationMinutes > 120) {
+      return res.status(400).json({ error: "durationMinutes deve estar entre 5 e 120" });
+    }
+    
+    await db.updateUserLongPausesConfig(userId, enabled, afterMessages, durationMinutes);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("[PAUSAS] Erro ao atualizar:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 // ============================================
 // [ASSINATURA] Sistema de Pagamentos Asaas
@@ -2020,7 +2074,6 @@ app.delete('/api/blacklist/:phone', authenticateToken, requirePremium, async (re
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-});
 
   console.log(`\n${'='.repeat(60)}`);
   console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
