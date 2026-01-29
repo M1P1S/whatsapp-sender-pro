@@ -526,7 +526,7 @@ setInterval(async () => {
                 if (words.length > 0) {
                   const originalFirst = words[0];
                   words[0] = randomVariation;
-                  finalMessage = words.join(' ');
+                  finalMessage = randomVariation; // words.join(' ');
                   console.log(`[VARIAÇÃO-AGENDAMENTO] User ${userId}: "${originalFirst}" → "${randomVariation}"`);
                 }
               }
@@ -1505,7 +1505,7 @@ app.post('/api/send', authenticateToken, upload.single('media'), async (req, res
             if (words.length > 0) {
               const originalFirst = words[0];
               words[0] = randomVariation;
-              finalMessage = words.join(' ');
+              finalMessage = randomVariation; // words.join(' ');
               console.log(`[VARIAÇÃO] User ${userId}: "${originalFirst}" → "${randomVariation}"`);
             }
           }
@@ -1604,7 +1604,7 @@ app.post('/api/schedule', authenticateToken, upload.single('media'), async (req,
 
     const contactList = JSON.parse(contacts);
     const mediaPath = req.file ? req.file.path : null;
-    const mediaType = req.file ? (req.file.mimetype.startsWith('image') ? 'image' : 'video') : null;
+    const mediaType = req.file ? (req.file.mimetype.includes('image') ? 'image' : req.file.mimetype.includes('audio') ? 'audio' : req.file.mimetype.includes('video') ? 'video' : 'document') : null;
 
     const schedule = await db.createSchedule(
       req.user.id,
@@ -1856,6 +1856,41 @@ app.put("/api/interval-mode", authenticateToken, async (req, res) => {
     console.error("[INTERVAL-MODE] Erro ao atualizar:", error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// ========== PAUSAS LONGAS (PREMIUM) ==========
+app.get("/api/long-pauses", authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const config = await db.getUserLongPausesConfig(userId);
+    res.json(config);
+  } catch (error) {
+    console.error("[PAUSAS] Erro ao buscar:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/long-pauses", authenticateToken, requirePremium, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { enabled, afterMessages, durationMinutes } = req.body;
+    
+    // Validações
+    if (afterMessages < 50 || afterMessages > 1000) {
+      return res.status(400).json({ error: "afterMessages deve estar entre 50 e 1000" });
+    }
+    if (durationMinutes < 5 || durationMinutes > 120) {
+      return res.status(400).json({ error: "durationMinutes deve estar entre 5 e 120" });
+    }
+    
+    await db.updateUserLongPausesConfig(userId, enabled, afterMessages, durationMinutes);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("[PAUSAS] Erro ao atualizar:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 // ============================================
 // [ASSINATURA] Sistema de Pagamentos Asaas
@@ -2020,7 +2055,6 @@ app.delete('/api/blacklist/:phone', authenticateToken, requirePremium, async (re
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-});
 
   console.log(`\n${'='.repeat(60)}`);
   console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);

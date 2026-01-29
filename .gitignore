@@ -1,43 +1,36 @@
-# Dependencies
-node_modules/
-package-lock.json
+# Sessões WhatsApp
+wwebjs_auth/
+.wwebjs_auth/
+*.session
 
-# Environment variables
-.env
-.env.*
-token.txt
-qr.txt
-qr_base64.txt
+# Uploads temporários
+server/uploads/
+uploads/
 
-# Database
+# Banco de dados
+server/whatsapp.db
 *.db
-*.db-*
 
 # Backups
-*.backup*
-*.tar.gz
-backup_*
-*_ATUAL_*
-server/whatsapp-sender-pro-*.tar.gz
+backups/
 
-# Chrome
-google-chrome-stable_*.deb
+# Node
+node_modules/
+npm-debug.log
 
-# PM2
-ecosystem.config.js
+# Ambiente
+.env
+.env.local
 
 # Logs
 *.log
 logs/
 
-# OS
+# Sistema
 .DS_Store
 Thumbs.db
 
-# Temporary files
-*.tmp
-*.temp
-
-# Database backups
-server/*.db.backup-*
-server/database.sqlite
+# Apresentações/Documentos (não relacionados ao código)
+APRESENTACAO_COMERCIAL.md
+APRESENTACAO_WHATSAPP.txt
+IMAGEM_APRESENTACAO_GUIA.md

@@ -1068,6 +1068,7 @@ function renderVariations(variations) {
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
     loadSendMode();
+    loadLongPausesConfig();
     loadVariations();
   }, 1500);
 });
@@ -1182,3 +1183,71 @@ async function disconnectWhatsApp() {
     alert('Erro ao desconectar WhatsApp');
   }
 }
+
+// ========== PAUSAS LONGAS ==========
+async function loadLongPausesConfig() {
+  try {
+    const token = localStorage.getItem("token");
+    
+    const response = await fetch("/api/long-pauses", {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    
+    
+    if (response.ok) {
+      const config = await response.json();
+      
+      const section = document.getElementById("long-pauses-section");
+      
+      if (section) {
+        section.style.display = "block";
+      }
+      
+      document.getElementById("enable-long-pauses").checked = config.enable_long_pauses === 1;
+      document.getElementById("pause-after").value = config.pause_after_messages || 100;
+      document.getElementById("pause-duration").value = config.pause_duration_minutes || 10;
+      toggleLongPauses();
+    } else {
+      const error = await response.text();
+    }
+  } catch (error) {
+  }
+}
+
+function toggleLongPauses() {
+  const enabled = document.getElementById('enable-long-pauses').checked;
+  const config = document.getElementById('long-pauses-config');
+  if (config) {
+    config.style.display = enabled ? 'block' : 'none';
+  }
+  
+  if (enabled) {
+    saveLongPausesConfig();
+  }
+}
+
+async function saveLongPausesConfig() {
+  try {
+    const enabled = document.getElementById('enable-long-pauses').checked;
+    const afterMessages = parseInt(document.getElementById('pause-after').value);
+    const durationMinutes = parseInt(document.getElementById('pause-duration').value);
+    
+    await fetch('/api/long-pauses', {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ enabled, afterMessages, durationMinutes })
+    });
+    
+    console.log('[PAUSAS] Configuração salva:', { enabled, afterMessages, durationMinutes });
+  } catch (error) {
+    console.error('Erro ao salvar pausas longas:', error);
+  }
+}
+
+// Adicionar listeners
+document.getElementById('pause-after')?.addEventListener('change', saveLongPausesConfig);
+document.getElementById('pause-duration')?.addEventListener('change', saveLongPausesConfig);
+

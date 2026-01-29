@@ -537,7 +537,7 @@
 
         const el = document.getElementById("whatsapp-status");
 
-        if (data.status === "connected") {
+        if (data.status === "connected" || data.status === "authenticated") {
           el.textContent = "🟢 Conectado";
           el.style.color = "#28a745";
         } else if (data.status === "qr") {

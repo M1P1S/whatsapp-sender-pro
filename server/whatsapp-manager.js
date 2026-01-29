@@ -9,6 +9,20 @@ const qrcode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
 
+// Função para converter Opus para MP3 (PTT fix)
+function convertOpusToMp3Sync(opusPath) {
+  const mp3Path = opusPath.replace(/\.ogg$/i, '.mp3');
+  try {
+    execSync(`ffmpeg -i "${opusPath}" -acodec libmp3lame -ab 64k "${mp3Path}" -y 2>&1`);
+    console.log(`[AUDIO] Convertido: ${mp3Path}`);
+    return mp3Path;
+  } catch (e) {
+    console.error('[AUDIO] Erro:', e.message);
+    return opusPath;
+  }
+}
+const { execSync } = require('child_process');
+
 // ============================================
 // ARMAZENAMENTO DE SESSÕES
 // ============================================
@@ -39,7 +53,7 @@ function getAllSessionsInfo() {
     info.push({
       userId,
       status: session.status,
-      connected: session.status === 'connected',
+      connected: session.status === 'connected' || session.status === 'authenticated',
       lastActivity: session.lastActivity,
       hasQR: !!session.qrCode
     });
@@ -59,7 +73,7 @@ function getSessionInfo(userId) {
   return {
     exists: true,
     status: session.status,
-    connected: session.status === 'connected',
+    connected: session.status === 'connected' || session.status === 'authenticated',
     lastActivity: session.lastActivity,
     hasQR: !!session.qrCode
   };
@@ -115,7 +129,7 @@ async function createSession(userId) {
   // Verificar se já existe
   if (sessions.has(userId)) {
     const existing = sessions.get(userId);
-    if (existing.status === 'connected') {
+    if (existing.status === 'connected' || session.status === 'authenticated') {
       console.log(`[MULTI-SESSION] Sessão já existe e está conectada | User: ${userId}`);
       return { success: true, message: 'Sessão já conectada' };
     }
@@ -329,7 +343,7 @@ function formatPhoneNumber(number) {
 async function checkNumberExists(userId, number) {
   const session = sessions.get(userId);
 
-  if (!session || session.status !== 'connected') {
+  if (!session || session.status !== 'connected' && session.status !== 'authenticated') {
     throw new Error('WhatsApp não está conectado');
   }
 
@@ -354,7 +368,7 @@ async function sendMessage(userId, number, text, mediaPath = null, mediaType = n
     throw new Error('Sessão não existe. Conecte-se ao WhatsApp primeiro.');
   }
 
-  if (session.status !== 'connected') {
+  if (session.status !== 'connected' && session.status !== 'authenticated') {
     throw new Error(`WhatsApp não está conectado. Status: ${session.status}`);
   }
 
@@ -391,7 +405,12 @@ async function sendMessage(userId, number, text, mediaPath = null, mediaType = n
     const fileSizeMB = (fileSize / 1024 / 1024).toFixed(2);
     console.log(`[MULTI-SESSION] User ${userId} enviando mídia (${fileSizeMB}MB) para ${number}`);
 
-    const ext = path.extname(mediaPath).toLowerCase();
+    let ext = path.extname(mediaPath).toLowerCase();
+    // Converter Opus para MP3 se necessário
+    if (ext === '.ogg') {
+      mediaPath = convertOpusToMp3Sync(mediaPath);
+      ext = path.extname(mediaPath).toLowerCase();
+    }
     const media = MessageMedia.fromFilePath(mediaPath);
 
     // VÍDEOS - SEMPRE COMO DOCUMENTO
@@ -480,7 +499,7 @@ function getConnectionStatus(userId) {
   }
 
   return {
-    connected: session.status === 'connected',
+    connected: session.status === 'connected' || session.status === 'authenticated',
     status: session.status
   };
 }
@@ -491,7 +510,7 @@ function getConnectionStatus(userId) {
 async function getUserInfo(userId) {
   const session = sessions.get(userId);
 
-  if (!session || session.status !== 'connected') {
+  if (!session || session.status !== 'connected' && session.status !== 'authenticated') {
     return null;
   }
 
