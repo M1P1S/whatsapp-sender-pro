@@ -536,6 +536,14 @@ setInterval(async () => {
             await whatsappManager.sendMessage(userId, contact, finalMessage, schedule.media_path, schedule.media_type);
             results.push({ contact, success: true });
             successCount++;
+        messagesSent++;
+        // [PAUSAS LONGAS] Verificar se precisa pausar
+        if (user.plan === "PREMIUM" && pauseConfig.enable_long_pauses && messagesSent % pauseConfig.pause_after_messages === 0) {
+          const pauseMs = pauseConfig.pause_duration_minutes * 60 * 1000;
+          console.log(`[PAUSAS LONGAS] User ${userId}: Enviadas ${messagesSent} mensagens. Pausando por ${pauseConfig.pause_duration_minutes} minutos...`);
+          await new Promise(resolve => setTimeout(resolve, pauseMs));
+          console.log(`[PAUSAS LONGAS] User ${userId}: Retomando envios...`);
+        }
           } catch (error) {
             results.push({ contact, success: false, error: error.message });
             errorCount++;
@@ -1472,6 +1480,9 @@ app.post('/api/send', authenticateToken, upload.single('media'), async (req, res
     let errorCount = 0;
 
     console.log(`[MULTI-SESSION] User ${userId} iniciando envio para ${contactList.length} contatos`);
+    // [PAUSAS LONGAS] Buscar configuração se PREMIUM
+    const pauseConfig = await db.getUserLongPausesConfig(userId);
+    let messagesSent = 0;
 
     for (const contact of contactList) {
       try {
@@ -1514,6 +1525,14 @@ app.post('/api/send', authenticateToken, upload.single('media'), async (req, res
         await whatsappManager.sendMessage(userId, contact, finalMessage, mediaPath, mediaType);
         results.push({ contact, success: true });
         successCount++;
+        messagesSent++;
+        // [PAUSAS LONGAS] Verificar se precisa pausar
+        if (user.plan === "PREMIUM" && pauseConfig.enable_long_pauses && messagesSent % pauseConfig.pause_after_messages === 0) {
+          const pauseMs = pauseConfig.pause_duration_minutes * 60 * 1000;
+          console.log(`[PAUSAS LONGAS] User ${userId}: Enviadas ${messagesSent} mensagens. Pausando por ${pauseConfig.pause_duration_minutes} minutos...`);
+          await new Promise(resolve => setTimeout(resolve, pauseMs));
+          console.log(`[PAUSAS LONGAS] User ${userId}: Retomando envios...`);
+        }
       } catch (error) {
         results.push({ contact, success: false, error: error.message });
         errorCount++;
