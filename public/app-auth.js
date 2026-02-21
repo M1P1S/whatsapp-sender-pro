@@ -1,8 +1,9 @@
-const API_URL = 'https://whatsapp-sender.duckdns.org';
+const API_URL = '';
+const TOKEN_KEY = 'token_' + (window.location.port || '80');
 let contacts = [];
 let retryCount = 0;
 const MAX_RETRIES = 3;
-let token = localStorage.getItem('token');
+let token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('token');
 let userPlan = 'FREE';
 let canSendMedia = false;
 
@@ -98,6 +99,7 @@ async function loadUserInfo() {
     
   } catch (error) {
     console.error('Erro ao carregar usuário:', error);
+    localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem('token');
     window.location.href = '/auth.html';
   }
@@ -188,6 +190,7 @@ function updateIntervalVisibility(isPro) {
 // Logout
 function logout() {
   if (confirm('Deseja realmente sair?')) {
+    localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     window.location.href = '/auth.html';

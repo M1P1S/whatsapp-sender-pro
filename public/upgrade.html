@@ -207,7 +207,8 @@
   <!-- Script da pÃ¡gina -->
   <script>
     const API_URL = '';
-    let token = localStorage.getItem('token');
+    const TOKEN_KEY = 'token_' + (window.location.port || '80');
+    let token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('token');
 
     if (!token) {
       window.location.href = '/auth.html';

@@ -270,6 +270,7 @@
 
   <script>
     const API_URL = '';
+    const TOKEN_KEY = 'token_' + (window.location.port || '80');
 
     function switchTab(tab) {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -339,13 +340,14 @@
 
         if (response.ok) {
           console.log('✅ Login OK, salvando token...');
-          
+
+          localStorage.removeItem(TOKEN_KEY);
           localStorage.removeItem('token');
           localStorage.removeItem('user');
-          
-          localStorage.setItem('token', data.token);
+
+          localStorage.setItem(TOKEN_KEY, data.token);
           localStorage.setItem('user', JSON.stringify(data.user));
-          
+
           console.log('✅ Token salvo:', data.token.substring(0, 20) + '...');
           
           showAlert('Login realizado com sucesso! Redirecionando...', 'success');
@@ -385,15 +387,14 @@
 
         if (response.ok) {
           console.log('✅ Cadastro OK, salvando token...');
-          
-          // Limpar storage antigo
+
+          localStorage.removeItem(TOKEN_KEY);
           localStorage.removeItem('token');
           localStorage.removeItem('user');
-          
-          // Salvar novos dados
-          localStorage.setItem('token', data.token);
+
+          localStorage.setItem(TOKEN_KEY, data.token);
           localStorage.setItem('user', JSON.stringify(data.user));
-          
+
           console.log('✅ Token salvo:', data.token.substring(0, 20) + '...');
           
           showAlert('Cadastro realizado! Redirecionando...', 'success');
@@ -415,7 +416,7 @@
 
     // Verificar se já está logado - SÓ VERIFICAR UMA VEZ
     (function checkInitialAuth() {
-      const existingToken = localStorage.getItem('token');
+      const existingToken = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('token');
       if (existingToken) {
         console.log('🔍 Token existente encontrado, verificando validade...');
         
@@ -428,12 +429,14 @@
             window.location.href = '/dashboard.html';
           } else {
             console.log('❌ Token inválido, limpando...');
+            localStorage.removeItem(TOKEN_KEY);
             localStorage.removeItem('token');
             localStorage.removeItem('user');
           }
         })
         .catch(err => {
           console.log('⚠️ Erro ao verificar token:', err);
+          localStorage.removeItem(TOKEN_KEY);
           localStorage.removeItem('token');
           localStorage.removeItem('user');
         });

@@ -12,7 +12,7 @@ if (missingEnvVars.length > 0) {
   process.exit(1);
 }
  
-/===== TESTE DE VARIÁVEIS DE AMBIENTE =====/
+// ===== TESTE DE VARIÁVEIS DE AMBIENTE =====
 console.log('\n' + '='.repeat(60));
 console.log('🔍 TESTE DE CONFIGURAÇÃO');
 console.log('='.repeat(60));
@@ -36,12 +36,11 @@ const session = require('express-session');
 const SQLiteStore = require('connect-sqlite3')(session);
 const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
-const { connectToWhatsApp, sendMessage, getQRCode, getConnectionStatus, forceLogout } = require('./whatsapp-simple');
+const { connectToWhatsApp, sendMessage, getQRCode, getConnectionStatus, forceLogout, postStatus, getChats, getChatMessages, sendDirectMessage, getClient } = require('./whatsapp-manager');
 const PDFDocument = require('pdfkit');
 const db = require('./database');
 const paymentService = require('./payment'); 
 const app = express();
-app.set('trust proxy', 1);
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET; // MUDE EM PRODUÇÃO!
@@ -54,8 +53,9 @@ app.use((req, res, next) => {
     "default-src 'self'; " +
     "script-src 'self' 'unsafe-inline'; " +
     "style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' data: https: http:; " +
-    "connect-src 'self'  ; " +
+    "img-src 'self' data: blob: https: http:; " +
+    "media-src 'self' data: blob:; " +
+    "connect-src 'self'; " +
     "font-src 'self'; " +
     "object-src 'none'; " +
     "base-uri 'self';"
@@ -292,167 +292,6 @@ if (isDevelopment) {
   console.log('   ✅ Modo DEV: Rate limiting DESABILITADO para facilitar testes');
 }
 console.log('');
-app.post('/api/payment/create-preference', authenticateToken, async (req, res) => {
-  try {
-    const { planType, months } = req.body;
-    const userId = req.user.id;
-    
-    console.log(`💳 Criando preferência de pagamento para ${req.user.email}`);
-    
-    const preference = await paymentService.createPaymentPreference(
-      userId,
-      req.user.email,
-      req.user.name || req.user.email,
-      planType,
-      months || (planType === 'yearly' ? 12 : 1)
-    );
-    
-    console.log(`✅ Preferência criada: ${preference.id}`);
-    
-    res.json({
-      success: true,
-      preferenceId: preference.id,
-      initPoint: preference.init_point,
-      sandboxInitPoint: preference.sandbox_init_point
-    });
-  } catch (error) {
-    console.error('❌ Erro ao criar preferência:', error);
-    res.status(500).json({ error: 'Erro ao criar preferência de pagamento' });
-  }
-});
-
-// Criar pagamento PIX
-app.post('/api/payment/create-pix', authenticateToken, async (req, res) => {
-  try {
-    const { planType, amount } = req.body;
-    const userId = req.user.id;
-    
-    console.log(`🔑 Criando pagamento PIX para ${req.user.email}`);
-    
-    const description = planType === 'yearly' 
-      ? 'WhatsApp Sender PRO - Plano Anual' 
-      : 'WhatsApp Sender PRO - Plano Mensal';
-    
-    const pixPayment = await paymentService.createPixPayment(
-      userId,
-      req.user.email,
-      req.user.name || req.user.email,
-      planType,      // ✅ CORRETO - planType primeiro
-      amount         // ✅ CORRETO - amount depois
-    );
-    
-    console.log(`✅ PIX criado: ${pixPayment.paymentId}`);
-    console.log(`📊 QR Code: ${pixPayment.qrCode ? 'OK ✓' : 'FALTANDO ✗'}`);
-    console.log(`📊 QR Code Base64: ${pixPayment.qrCodeBase64 ? 'OK ✓' : 'FALTANDO ✗'}`);
-    
-    res.json({
-      success: true,
-      paymentId: pixPayment.paymentId,
-      qrCode: pixPayment.qrCode,
-      qrCodeBase64: pixPayment.qrCodeBase64,
-      ticketUrl: pixPayment.invoiceUrl
-    });
-  } catch (error) {
-    console.error('❌ Erro ao criar PIX:', error);
-    res.status(500).json({ error: 'Erro ao criar pagamento PIX' });
-  }
-});
-
-// Webhook do Asaas (SEM authenticateToken)
-app.post('/api/payment/webhook', async (req, res) => {
-  try {
-    console.log('📥 Webhook recebido do Asaas');
-    console.log('Body:', JSON.stringify(req.body, null, 2));
-    
-    const result = await paymentService.processWebhook(req.body);
-    
-    if (result.approved) {
-      console.log(`✅ Pagamento aprovado para usuário: ${result.userId}`);
-      
-      // Calcular data de expiração
-      const expiryDate = new Date();
-      expiryDate.setMonth(expiryDate.getMonth() + result.months);
-      
-      // Atualizar usuário para PRO
-      await db.run(
-        `UPDATE users 
-         SET plan = 'PRO', 
-             plan_expires_at = ?,
-             updated_at = CURRENT_TIMESTAMP 
-         WHERE id = ?`,
-        [expiryDate.toISOString(), result.userId]
-      );
-      
-      console.log(`💎 Usuário ${result.userId} atualizado para PRO até ${expiryDate}`);
-    }
-    
-    // Sempre retornar 200 para o Asaas
-    res.status(200).json({ success: true });
-  } catch (error) {
-    console.error('❌ Erro no webhook:', error);
-    // Mesmo com erro, retornar 200 para não retentar
-    res.status(200).json({ error: error.message });
-  }
-});
-
-// Verificar status do pagamento
-app.get('/api/payment/status/:paymentId', authenticateToken, async (req, res) => {
-  try {
-    const { paymentId } = req.params;
-    
-    console.log(`🔍 Verificando status do pagamento: ${paymentId}`);
-    
-    const status = await paymentService.checkPaymentStatus(paymentId);
-    
-    res.json({
-      success: true,
-      status: status.status,
-      statusDetail: status.status_detail,
-      amount: status.transaction_amount
-    });
-  } catch (error) {
-    console.error('❌ Erro ao verificar status:', error);
-    res.status(500).json({ error: 'Erro ao verificar status do pagamento' });
-  }
-});
-
-// Páginas de retorno do Asaas
-app.get('/payment/success', (req, res) => {
-  console.log('✅ Usuário retornou da página de pagamento - SUCESSO');
-  res.redirect('/?payment=success');
-});
-
-app.get('/payment/failure', (req, res) => {
-  console.log('❌ Usuário retornou da página de pagamento - FALHA');
-  res.redirect('/?payment=failure');
-});
-
-app.get('/payment/pending', (req, res) => {
-  console.log('⏳ Usuário retornou da página de pagamento - PENDENTE');
-  res.redirect('/?payment=pending');
-});
-
-// Verificar status premium do usuário
-app.get('/api/user/premium-status', authenticateToken, async (req, res) => {
-  try {
-    const isPremiumActive = req.user.plan === 'PRO' && 
-      new Date(req.user.plan_expires_at) > new Date();
-    
-    // Se expirou, atualizar no banco
-    if (req.user.plan === 'PRO' && !isPremiumActive) {
-      await db.run('UPDATE users SET plan = ? WHERE id = ?', ['FREE', req.user.id]);
-    }
-    
-    res.json({
-      isPremium: isPremiumActive,
-      plan: req.user.plan,
-      expiresAt: req.user.plan_expires_at
-    });
-  } catch (error) {
-    console.error('❌ Erro ao verificar status premium:', error);
-    res.status(500).json({ error: 'Erro ao verificar status premium' });
-  }
-});
 
 // Conectar ao WhatsApp ao iniciar
 console.log('🔄 Iniciando conexão com WhatsApp...');
@@ -758,8 +597,7 @@ app.post('/api/payment/webhook', async (req, res) => {
       await db.run(
         `UPDATE users
          SET plan = 'PRO',
-             plan_expires_at = ?,
-             updated_at = CURRENT_TIMESTAMP
+             plan_expires_at = ?
          WHERE id = ?`,
         [expiryDate.toISOString(), result.userId]
       );
@@ -1402,7 +1240,7 @@ app.post('/api/test-number', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Número é obrigatório' });
     }
     
-    const { checkNumberExists } = require('./whatsapp-simple');
+    const { checkNumberExists } = require('./whatsapp-manager');
     const cleaned = String(number).replace(/\D/g, '');
     const exists = await checkNumberExists(cleaned);
     
@@ -1474,10 +1312,162 @@ app.delete('/api/schedule/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// ============================================
+// CHAT ENDPOINTS (PRO)
+// ============================================
+
+// Listar chats
+app.get('/api/chat/list', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.plan !== 'PRO') {
+      return res.status(403).json({ error: 'Chat disponível apenas no plano PRO' });
+    }
+    const chats = await getChats();
+    res.json({ success: true, chats });
+  } catch (error) {
+    console.error('❌ Erro ao listar chats:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Mensagens de um chat
+app.get('/api/chat/messages/:chatId', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.plan !== 'PRO') {
+      return res.status(403).json({ error: 'Chat disponível apenas no plano PRO' });
+    }
+    const messages = await getChatMessages(req.params.chatId);
+    res.json({ success: true, messages });
+  } catch (error) {
+    console.error('❌ Erro ao buscar mensagens:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Enviar mensagem direta
+app.post('/api/chat/send', authenticateToken, upload.single('media'), async (req, res) => {
+  try {
+    if (req.user.plan !== 'PRO') {
+      return res.status(403).json({ error: 'Chat disponível apenas no plano PRO' });
+    }
+    const { chatId, message } = req.body;
+    if (!chatId || !message) {
+      return res.status(400).json({ error: 'chatId e message são obrigatórios' });
+    }
+    const result = await sendDirectMessage(chatId, message, req.file ? req.file.path : null);
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error('❌ Erro ao enviar mensagem direta:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// STATUS ENDPOINT (PRO)
+// ============================================
+app.post('/api/status/post', authenticateToken, upload.single('media'), async (req, res) => {
+  try {
+    if (req.user.plan !== 'PRO') {
+      return res.status(403).json({ error: 'Status disponível apenas no plano PRO' });
+    }
+    const { text, type, backgroundColor, fontStyle } = req.body;
+    const mediaPath = req.file ? req.file.path : null;
+
+    const result = await postStatus(text, mediaPath, type, { backgroundColor, fontStyle });
+
+    if (mediaPath && fs.existsSync(mediaPath)) {
+      fs.unlinkSync(mediaPath);
+    }
+
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error('❌ Erro ao postar status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// BOT ENDPOINTS (PRO)
+// ============================================
+const BotEngine = require('./bot-engine');
+let botEngine = null;
+
+// Obter configuração do bot
+app.get('/api/bot/config', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.plan !== 'PRO') {
+      return res.status(403).json({ error: 'Bot disponível apenas no plano PRO' });
+    }
+    const config = await db.getBotConfig(req.user.id);
+    const rules = await db.getBotRules(req.user.id);
+    res.json({ success: true, config: config || {}, rules });
+  } catch (error) {
+    console.error('❌ Erro ao buscar config do bot:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Salvar configuração do bot
+app.post('/api/bot/config', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.plan !== 'PRO') {
+      return res.status(403).json({ error: 'Bot disponível apenas no plano PRO' });
+    }
+    await db.saveBotConfig(req.user.id, req.body);
+
+    // Reiniciar bot engine se ativado
+    if (req.body.enabled && getClient()) {
+      const config = await db.getBotConfig(req.user.id);
+      const rules = await db.getBotRules(req.user.id);
+      if (!botEngine) {
+        botEngine = new BotEngine(getClient());
+      }
+      botEngine.updateConfig(req.user.id, config, rules);
+    }
+
+    res.json({ success: true, message: 'Configuração salva' });
+  } catch (error) {
+    console.error('❌ Erro ao salvar config do bot:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Adicionar regra do bot
+app.post('/api/bot/rules', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.plan !== 'PRO') {
+      return res.status(403).json({ error: 'Bot disponível apenas no plano PRO' });
+    }
+    const { keyword, response, matchType } = req.body;
+    if (!keyword || !response) {
+      return res.status(400).json({ error: 'keyword e response são obrigatórios' });
+    }
+    const result = await db.addBotRule(req.user.id, keyword, response, matchType || 'contains');
+    res.json({ success: true, ruleId: result.id });
+  } catch (error) {
+    console.error('❌ Erro ao adicionar regra:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Deletar regra do bot
+app.delete('/api/bot/rules/:id', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.plan !== 'PRO') {
+      return res.status(403).json({ error: 'Bot disponível apenas no plano PRO' });
+    }
+    const changes = await db.deleteBotRule(req.params.id, req.user.id);
+    res.json({ success: true, deleted: changes > 0 });
+  } catch (error) {
+    console.error('❌ Erro ao deletar regra:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     timestamp: new Date().toISOString()
   });
 });

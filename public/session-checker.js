@@ -37,8 +37,9 @@ class SessionChecker {
     this.isChecking = true;
     
     try {
-      const token = localStorage.getItem('token');
-      
+      const TOKEN_KEY = 'token_' + (window.location.port || '80');
+      const token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('token');
+
       if (!token) {
         console.log('[SESSION] Token não encontrado');
         this.handleDisconnected('Sessão não encontrada');
@@ -84,6 +85,8 @@ class SessionChecker {
     this.showDisconnectModal(message);
     
     // Limpar dados locais
+    const TOKEN_KEY_CLEANUP = 'token_' + (window.location.port || '80');
+    localStorage.removeItem(TOKEN_KEY_CLEANUP);
     localStorage.removeItem('token');
     
     // Redirecionar após 3 segundos
@@ -227,7 +230,8 @@ const sessionChecker = new SessionChecker();
 // Auto-iniciar se tiver token
 if (typeof window !== 'undefined') {
   window.addEventListener('DOMContentLoaded', () => {
-    const token = localStorage.getItem('token');
+    const _TOKEN_KEY = 'token_' + (window.location.port || '80');
+    const token = localStorage.getItem(_TOKEN_KEY) || localStorage.getItem('token');
     if (token) {
       console.log('[SESSION] Token encontrado, iniciando verificação');
       sessionChecker.start();

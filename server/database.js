@@ -93,6 +93,70 @@ function initDatabase() {
     }
   });
 
+  // Tabela de sessões ativas (SINGLE-SESSION)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS active_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      session_token TEXT NOT NULL,
+      device_info TEXT,
+      ip_address TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
+      is_active INTEGER DEFAULT 1,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `, (err) => {
+    if (err) {
+      console.error('❌ Erro ao criar tabela active_sessions:', err);
+    } else {
+      console.log('✅ Tabela active_sessions criada/verificada');
+    }
+  });
+
+  // Tabela de configurações do bot
+  db.run(`
+    CREATE TABLE IF NOT EXISTS bot_configs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL UNIQUE,
+      enabled INTEGER DEFAULT 0,
+      welcome_message TEXT,
+      away_message TEXT,
+      business_hours_start TEXT DEFAULT '09:00',
+      business_hours_end TEXT DEFAULT '18:00',
+      weekend_message TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `, (err) => {
+    if (err) {
+      console.error('❌ Erro ao criar tabela bot_configs:', err);
+    } else {
+      console.log('✅ Tabela bot_configs criada/verificada');
+    }
+  });
+
+  // Tabela de regras do bot
+  db.run(`
+    CREATE TABLE IF NOT EXISTS bot_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      keyword TEXT NOT NULL,
+      response TEXT NOT NULL,
+      match_type TEXT DEFAULT 'contains',
+      is_active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `, (err) => {
+    if (err) {
+      console.error('❌ Erro ao criar tabela bot_rules:', err);
+    } else {
+      console.log('✅ Tabela bot_rules criada/verificada');
+    }
+  });
+
   // 🔧 EXECUTAR MIGRAÇÃO após criar tabelas
   setTimeout(() => {
     migrateDatabase();
@@ -550,11 +614,96 @@ async function cleanOldSessions() {
 }
 
 // ============================================
+// PROMISE WRAPPER para db.run (usado em rotas de webhook/premium)
+// ============================================
+function run(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function(err) {
+      if (err) reject(err);
+      else resolve({ lastID: this.lastID, changes: this.changes });
+    });
+  });
+}
+
+// ============================================
+// FUNÇÕES DO BOT
+// ============================================
+
+async function getBotConfig(userId) {
+  return new Promise((resolve, reject) => {
+    db.get('SELECT * FROM bot_configs WHERE user_id = ?', [userId], (err, row) => {
+      if (err) reject(err);
+      else resolve(row || null);
+    });
+  });
+}
+
+async function saveBotConfig(userId, config) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT INTO bot_configs (user_id, enabled, welcome_message, away_message, business_hours_start, business_hours_end, weekend_message, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(user_id) DO UPDATE SET
+         enabled = excluded.enabled,
+         welcome_message = excluded.welcome_message,
+         away_message = excluded.away_message,
+         business_hours_start = excluded.business_hours_start,
+         business_hours_end = excluded.business_hours_end,
+         weekend_message = excluded.weekend_message,
+         updated_at = CURRENT_TIMESTAMP`,
+      [userId, config.enabled ? 1 : 0, config.welcome_message, config.away_message,
+       config.business_hours_start || '09:00', config.business_hours_end || '18:00',
+       config.weekend_message],
+      function(err) {
+        if (err) reject(err);
+        else resolve({ id: this.lastID });
+      }
+    );
+  });
+}
+
+async function getBotRules(userId) {
+  return new Promise((resolve, reject) => {
+    db.all('SELECT * FROM bot_rules WHERE user_id = ? ORDER BY created_at DESC', [userId], (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows || []);
+    });
+  });
+}
+
+async function addBotRule(userId, keyword, response, matchType = 'contains') {
+  return new Promise((resolve, reject) => {
+    db.run(
+      'INSERT INTO bot_rules (user_id, keyword, response, match_type) VALUES (?, ?, ?, ?)',
+      [userId, keyword, response, matchType],
+      function(err) {
+        if (err) reject(err);
+        else resolve({ id: this.lastID });
+      }
+    );
+  });
+}
+
+async function deleteBotRule(ruleId, userId) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      'DELETE FROM bot_rules WHERE id = ? AND user_id = ?',
+      [ruleId, userId],
+      function(err) {
+        if (err) reject(err);
+        else resolve(this.changes);
+      }
+    );
+  });
+}
+
+// ============================================
 // EXPORTS
 // ============================================
 
 module.exports = {
   db,
+  run,
   createUser,
   getUserByEmail,
   getUserById,
@@ -576,5 +725,11 @@ module.exports = {
   isSessionActive,
   updateSessionActivity,
   logoutSession,
-  cleanOldSessions
+  cleanOldSessions,
+  // Bot functions
+  getBotConfig,
+  saveBotConfig,
+  getBotRules,
+  addBotRule,
+  deleteBotRule
 };

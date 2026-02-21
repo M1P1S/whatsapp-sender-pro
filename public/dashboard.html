@@ -295,10 +295,16 @@
     <div class="section"
       style="background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-top:30px;">
       <h2 style="margin-bottom: 20px;">📤 Enviar Mensagens</h2>
-      <button onclick="window.location.href='/index.html'" class="btn-upgrade"
-        style="background:#128C7E; border-radius:8px;">
-        Ir para Sistema de Envio
-      </button>
+      <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+        <button onclick="window.location.href='/index.html'" class="btn-upgrade"
+          style="background:#128C7E; border-radius:8px;">
+          Ir para Sistema de Envio
+        </button>
+        <button id="btn-chat-whatsapp" onclick="window.location.href='/whatsapp.html'" class="btn-upgrade"
+          style="background:#25D366; border-radius:8px; display:none;">
+          💬 Chat WhatsApp
+        </button>
+      </div>
     </div>
 
     <!-- Agendamentos (somente PRO) -->
@@ -386,7 +392,8 @@
 
   <script>
     const API_URL = "";
-    let token = localStorage.getItem("token");
+    const TOKEN_KEY = 'token_' + (window.location.port || '80');
+    let token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem("token");
     let currentUser = null;
 
     if (!token) {
@@ -431,9 +438,11 @@
         if (isPro) {
           document.getElementById("upgrade-banner").style.display = "none";
           document.getElementById("schedules-section").style.display = "block";
+          document.getElementById("btn-chat-whatsapp").style.display = "inline-block";
         } else {
           document.getElementById("upgrade-banner").style.display = "flex";
           document.getElementById("schedules-section").style.display = "none";
+          document.getElementById("btn-chat-whatsapp").style.display = "none";
         }
 
         return data.user.id;
@@ -503,7 +512,9 @@
 
     async function loadWhatsappStatus() {
       try {
-        const response = await fetch(`${API_URL}/api/whatsapp/status`);
+        const response = await fetch(`${API_URL}/api/whatsapp/status`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
         const data = await response.json();
 
         const el = document.getElementById("whatsapp-status");
@@ -786,6 +797,7 @@
     // SAIR
     // ===============================
     function logout() {
+      localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem("token");
       window.location.href = "/auth.html";
     }
