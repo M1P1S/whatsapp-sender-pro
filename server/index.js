@@ -1026,7 +1026,8 @@ app.get('/api/qrcode', authenticateToken, (req, res) => {
 app.get('/api/status', authenticateToken, (req, res) => {
   try {
     const connected = getConnectionStatus();
-    res.json({ connected });
+    const qr = getQRCode();
+    res.json({ connected, qr });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

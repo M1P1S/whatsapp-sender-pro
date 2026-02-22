@@ -291,19 +291,37 @@
       </button>
     </div>
 
-    <!-- Sistema de envio -->
-    <div class="section"
-      style="background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-top:30px;">
-      <h2 style="margin-bottom: 20px;">📤 Enviar Mensagens</h2>
-      <div style="display: flex; gap: 15px; flex-wrap: wrap;">
-        <button onclick="window.location.href='/index.html'" class="btn-upgrade"
-          style="background:#128C7E; border-radius:8px;">
-          Ir para Sistema de Envio
-        </button>
-        <button id="btn-chat-whatsapp" onclick="window.location.href='/whatsapp.html'" class="btn-upgrade"
-          style="background:#25D366; border-radius:8px; display:none;">
-          💬 Chat WhatsApp
-        </button>
+    <!-- Menu de Funcionalidades -->
+    <div style="background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-top:30px;">
+      <h2 style="margin-bottom: 20px;">📋 Menu</h2>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+        <!-- Envio em Massa (todos) -->
+        <div onclick="window.location.href='/index.html'" style="cursor:pointer; background: linear-gradient(135deg, #128C7E, #25D366); color:white; padding:20px; border-radius:12px; text-align:center; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'">
+          <div style="font-size:2em; margin-bottom:8px;">📤</div>
+          <div style="font-weight:bold; font-size:1.1em;">Envio em Massa</div>
+          <div style="font-size:0.8em; opacity:0.9; margin-top:5px;">Enviar para lista de contatos</div>
+        </div>
+
+        <!-- Chat WhatsApp (PRO/PREMIUM) -->
+        <div id="menu-chat" onclick="window.location.href='/whatsapp.html'" style="cursor:pointer; background: linear-gradient(135deg, #25D366, #4FCE5D); color:white; padding:20px; border-radius:12px; text-align:center; display:none; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'">
+          <div style="font-size:2em; margin-bottom:8px;">💬</div>
+          <div style="font-weight:bold; font-size:1.1em;">Chat WhatsApp</div>
+          <div style="font-size:0.8em; opacity:0.9; margin-top:5px;">Conversas em tempo real</div>
+        </div>
+
+        <!-- Status (PRO/PREMIUM) -->
+        <div id="menu-status" onclick="alert('Em breve! Postar status diretamente pelo sistema.')" style="cursor:pointer; background: linear-gradient(135deg, #FF6B35, #FF9F1C); color:white; padding:20px; border-radius:12px; text-align:center; display:none; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'">
+          <div style="font-size:2em; margin-bottom:8px;">📸</div>
+          <div style="font-weight:bold; font-size:1.1em;">Postar Status</div>
+          <div style="font-size:0.8em; opacity:0.9; margin-top:5px;">Stories do WhatsApp</div>
+        </div>
+
+        <!-- Bot (PRO/PREMIUM) -->
+        <div id="menu-bot" onclick="alert('Em breve! Configurar respostas automáticas.')" style="cursor:pointer; background: linear-gradient(135deg, #6C5CE7, #A29BFE); color:white; padding:20px; border-radius:12px; text-align:center; display:none; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'">
+          <div style="font-size:2em; margin-bottom:8px;">🤖</div>
+          <div style="font-weight:bold; font-size:1.1em;">Bot Automático</div>
+          <div style="font-size:0.8em; opacity:0.9; margin-top:5px;">Respostas por palavras-chave</div>
+        </div>
       </div>
     </div>
 
@@ -438,11 +456,15 @@
         if (isPro) {
           document.getElementById("upgrade-banner").style.display = "none";
           document.getElementById("schedules-section").style.display = "block";
-          document.getElementById("btn-chat-whatsapp").style.display = "inline-block";
+          document.getElementById("menu-chat").style.display = "block";
+          document.getElementById("menu-status").style.display = "block";
+          document.getElementById("menu-bot").style.display = "block";
         } else {
           document.getElementById("upgrade-banner").style.display = "flex";
           document.getElementById("schedules-section").style.display = "none";
-          document.getElementById("btn-chat-whatsapp").style.display = "none";
+          document.getElementById("menu-chat").style.display = "none";
+          document.getElementById("menu-status").style.display = "none";
+          document.getElementById("menu-bot").style.display = "none";
         }
 
         return data.user.id;
