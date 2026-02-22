@@ -46,6 +46,11 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET; // MUDE EM PRODUÇÃO!
 const compression = require('compression');
 
+// Helper: verifica se plano é pago (PRO ou PREMIUM)
+function isPaidPlan(plan) {
+  return plan === 'PRO' || plan === 'PREMIUM';
+}
+
 // ===== CONFIGURAÇÃO DE SEGURANÇA (CSP) =====
 app.use((req, res, next) => {
   res.setHeader(
@@ -647,11 +652,11 @@ app.get('/payment/pending', (req, res) => {
 // Verificar status premium (atualizado)
 app.get('/api/user/premium-status', authenticateToken, async (req, res) => {
   try {
-    const isPremiumActive = req.user.plan === 'PRO' && 
+    const isPremiumActive = isPaidPlan(req.user.plan) &&
       new Date(req.user.plan_expires_at) > new Date();
-    
+
     // Se expirou, atualizar no banco
-    if (req.user.plan === 'PRO' && !isPremiumActive) {
+    if (isPaidPlan(req.user.plan) && !isPremiumActive) {
       await db.run('UPDATE users SET plan = ? WHERE id = ?', ['FREE', req.user.id]);
     }
     
@@ -742,7 +747,7 @@ app.get('/api/reports/pdf', authenticateToken, async (req, res) => {
     const user = await db.getUserById(userId);
     
     // Verificar se é PRO
-    if (user.plan !== 'PRO') {
+    if (!isPaidPlan(user.plan)) {
       return res.status(403).json({
         success: false,
         error: 'Exportação de PDF é exclusiva do plano PRO'
@@ -951,7 +956,7 @@ app.get('/api/reports/csv', authenticateToken, async (req, res) => {
     
     const user = await db.getUserById(userId);
     
-    if (user.plan !== 'PRO') {
+    if (!isPaidPlan(user.plan)) {
       return res.status(403).json({
         success: false,
         error: 'Exportação de CSV é exclusiva do plano PRO'
@@ -1261,7 +1266,7 @@ app.post('/api/test-number', authenticateToken, async (req, res) => {
 app.post('/api/schedule', authenticateToken, upload.single('media'), async (req, res) => {
   try {
     // Verifica se é PRO
-    if (req.user.plan !== 'PRO') {
+    if (!isPaidPlan(req.user.plan)) {
       return res.status(403).json({ error: 'Agendamento disponível apenas no plano PRO' });
     }
 
@@ -1319,7 +1324,7 @@ app.delete('/api/schedule/:id', authenticateToken, async (req, res) => {
 // Listar chats
 app.get('/api/chat/list', authenticateToken, async (req, res) => {
   try {
-    if (req.user.plan !== 'PRO') {
+    if (!isPaidPlan(req.user.plan)) {
       return res.status(403).json({ error: 'Chat disponível apenas no plano PRO' });
     }
     const chats = await getChats();
@@ -1333,7 +1338,7 @@ app.get('/api/chat/list', authenticateToken, async (req, res) => {
 // Mensagens de um chat
 app.get('/api/chat/messages/:chatId', authenticateToken, async (req, res) => {
   try {
-    if (req.user.plan !== 'PRO') {
+    if (!isPaidPlan(req.user.plan)) {
       return res.status(403).json({ error: 'Chat disponível apenas no plano PRO' });
     }
     const messages = await getChatMessages(req.params.chatId);
@@ -1347,7 +1352,7 @@ app.get('/api/chat/messages/:chatId', authenticateToken, async (req, res) => {
 // Enviar mensagem direta
 app.post('/api/chat/send', authenticateToken, upload.single('media'), async (req, res) => {
   try {
-    if (req.user.plan !== 'PRO') {
+    if (!isPaidPlan(req.user.plan)) {
       return res.status(403).json({ error: 'Chat disponível apenas no plano PRO' });
     }
     const { chatId, message } = req.body;
@@ -1367,7 +1372,7 @@ app.post('/api/chat/send', authenticateToken, upload.single('media'), async (req
 // ============================================
 app.post('/api/status/post', authenticateToken, upload.single('media'), async (req, res) => {
   try {
-    if (req.user.plan !== 'PRO') {
+    if (!isPaidPlan(req.user.plan)) {
       return res.status(403).json({ error: 'Status disponível apenas no plano PRO' });
     }
     const { text, type, backgroundColor, fontStyle } = req.body;
@@ -1395,7 +1400,7 @@ let botEngine = null;
 // Obter configuração do bot
 app.get('/api/bot/config', authenticateToken, async (req, res) => {
   try {
-    if (req.user.plan !== 'PRO') {
+    if (!isPaidPlan(req.user.plan)) {
       return res.status(403).json({ error: 'Bot disponível apenas no plano PRO' });
     }
     const config = await db.getBotConfig(req.user.id);
@@ -1410,7 +1415,7 @@ app.get('/api/bot/config', authenticateToken, async (req, res) => {
 // Salvar configuração do bot
 app.post('/api/bot/config', authenticateToken, async (req, res) => {
   try {
-    if (req.user.plan !== 'PRO') {
+    if (!isPaidPlan(req.user.plan)) {
       return res.status(403).json({ error: 'Bot disponível apenas no plano PRO' });
     }
     await db.saveBotConfig(req.user.id, req.body);
@@ -1435,7 +1440,7 @@ app.post('/api/bot/config', authenticateToken, async (req, res) => {
 // Adicionar regra do bot
 app.post('/api/bot/rules', authenticateToken, async (req, res) => {
   try {
-    if (req.user.plan !== 'PRO') {
+    if (!isPaidPlan(req.user.plan)) {
       return res.status(403).json({ error: 'Bot disponível apenas no plano PRO' });
     }
     const { keyword, response, matchType } = req.body;
@@ -1453,7 +1458,7 @@ app.post('/api/bot/rules', authenticateToken, async (req, res) => {
 // Deletar regra do bot
 app.delete('/api/bot/rules/:id', authenticateToken, async (req, res) => {
   try {
-    if (req.user.plan !== 'PRO') {
+    if (!isPaidPlan(req.user.plan)) {
       return res.status(403).json({ error: 'Bot disponível apenas no plano PRO' });
     }
     const changes = await db.deleteBotRule(req.params.id, req.user.id);

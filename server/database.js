@@ -327,8 +327,8 @@ async function incrementSends(userId, count) {
 async function canSend(userId, count, hasMedia = false) {
   const user = await getUserById(userId);
   
-  // Verifica se plano PRO está ativo
-  if (user.plan === 'PRO') {
+  // Verifica se plano PRO/PREMIUM está ativo
+  if (user.plan === 'PRO' || user.plan === 'PREMIUM') {
     if (user.plan_expires_at) {
       const expiresAt = new Date(user.plan_expires_at);
       if (expiresAt < new Date()) {

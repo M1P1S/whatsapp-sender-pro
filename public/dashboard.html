@@ -418,13 +418,13 @@
         document.getElementById("user-name").textContent = data.user.name || "Usuário";
 
         const planBadge = document.getElementById("plan-badge");
-        const isPro = data.user.plan === "PRO";
+        const isPro = data.user.plan === "PRO" || data.user.plan === "PREMIUM";
 
         // ⭐ ITEM 3: Atualizar visibilidade do botão PDF
         updateExportPDFVisibility(isPro);
 
         if (isPro) {
-          planBadge.textContent = "PRO";
+          planBadge.textContent = data.user.plan;
           planBadge.className = "plan-badge plan-pro";
         } else {
           planBadge.textContent = "FREE";
@@ -592,7 +592,7 @@
     // ===============================
     async function loadSchedules() {
       // Só carregar se for PRO
-      if (!currentUser || currentUser.plan !== 'PRO') {
+      if (!currentUser || (currentUser.plan !== 'PRO' && currentUser.plan !== 'PREMIUM')) {
         console.log('ℹ️ Usuário FREE - agendamentos não disponíveis');
         return;
       }

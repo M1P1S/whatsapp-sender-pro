@@ -325,8 +325,8 @@
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await res.json();
-        if (!res.ok || data.user.plan !== 'PRO') {
-          alert('Chat disponível apenas para plano PRO');
+        if (!res.ok || (data.user.plan !== 'PRO' && data.user.plan !== 'PREMIUM')) {
+          alert('Chat disponível apenas para plano PRO/PREMIUM');
           window.location.href = '/dashboard.html';
         }
       } catch (err) {

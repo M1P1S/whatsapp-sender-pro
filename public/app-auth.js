@@ -45,7 +45,7 @@ async function loadUserInfo() {
     planName.textContent = planData.plan;
     
     // ⭐ ITEM 6: Lógica ILIMITADO
-    if (planData.plan === 'PRO') {
+    if (planData.plan === 'PRO' || planData.plan === 'PREMIUM') {
       sendsInfo.innerHTML = '✨ Envios <strong>ILIMITADOS</strong>';
       sendsInfo.style.fontSize = '1.1em';
       sendsInfo.style.fontWeight = 'bold';
@@ -57,7 +57,7 @@ async function loadUserInfo() {
       console.log('✅ Item 6: Mostrar limite FREE');
     }
     
-    if (planData.plan === 'PRO') {
+    if (planData.plan === 'PRO' || planData.plan === 'PREMIUM') {
       planInfo.classList.add('pro');
       document.getElementById('upgrade-button').style.display = 'none';
       
@@ -265,7 +265,7 @@ async function checkConnection() {
       document.getElementById('disconnectBtn').style.display = 'inline-block';
       
       // Mostra seção de agendamento se for PRO
-      if (userPlan === 'PRO') {
+      if (userPlan === 'PRO' || userPlan === 'PREMIUM') {
         document.getElementById('schedule-section').style.display = 'block';
       }
     } else {
@@ -526,7 +526,7 @@ async function sendMessages() {
 
 // Agendar envio (PRO)
 async function scheduleMessages() {
-  if (userPlan !== 'PRO') {
+  if (userPlan !== 'PRO' && userPlan !== 'PREMIUM') {
     alert('⚠️ Agendamento disponível apenas no plano PRO!');
     window.location.href = '/upgrade.html';
     return;
