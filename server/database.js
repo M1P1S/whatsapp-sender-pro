@@ -336,7 +336,7 @@ async function canSend(userId, count, hasMedia = false) {
         await db.run('UPDATE users SET plan = ? WHERE id = ?', ['FREE', userId]);
         user.plan = 'FREE';
       } else {
-        // PRO ativo - limite alto (500) ou ilimitado
+        // PRO/PREMIUM ativo - limite alto (500) ou ilimitado
         const todaySends = await getTodaySends(userId);
         return {
           allowed: todaySends + count <= 500,
@@ -344,7 +344,7 @@ async function canSend(userId, count, hasMedia = false) {
           todaySends: todaySends,
           limit: 500,
           unlimited: true,
-          plan: 'PRO',
+          plan: user.plan,
           canSendMedia: true
         };
       }

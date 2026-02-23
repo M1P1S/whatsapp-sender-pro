@@ -336,6 +336,22 @@
 
     async function loadChats() {
       try {
+        // Verificar se WhatsApp está conectado primeiro
+        const statusRes = await fetch(`${API_URL}/api/status`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const statusData = await statusRes.json();
+
+        if (!statusData.connected) {
+          document.getElementById('chat-list').innerHTML = `
+            <div class="loading-chats" style="padding: 30px;">
+              <div style="font-size: 2em; margin-bottom: 15px;">📱</div>
+              <p style="font-weight: bold; margin-bottom: 10px;">WhatsApp Desconectado</p>
+              <p style="font-size: 0.85em; color: #999;">Conecte o WhatsApp primeiro na <a href="/index.html" style="color: #25D366;">página de envio</a></p>
+            </div>`;
+          return;
+        }
+
         const res = await fetch(`${API_URL}/api/chat/list`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -348,7 +364,7 @@
       } catch (err) {
         console.error('Erro ao carregar chats:', err);
         document.getElementById('chat-list').innerHTML =
-          '<div class="loading-chats">Erro ao carregar. WhatsApp conectado?</div>';
+          '<div class="loading-chats">Erro ao carregar. <a href="/index.html" style="color:#25D366;">Conecte o WhatsApp</a></div>';
       }
     }
 

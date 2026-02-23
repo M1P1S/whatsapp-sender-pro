@@ -501,8 +501,8 @@ app.get('/api/plan/info', authenticateToken, async (req, res) => {
       plan: req.user.plan,
       planExpiresAt: req.user.plan_expires_at,
       todaySends: permission.todaySends || 0,
-      limit: permission.unlimited ? Infinity : (permission.limit || 50),
-      remaining: permission.unlimited ? Infinity : (permission.remaining || 0),
+      limit: permission.unlimited ? 999999 : (permission.limit || 50),
+      remaining: permission.unlimited ? 999999 : (permission.remaining || 0),
       canSendMedia: permission.canSendMedia || false,
       unlimited: permission.unlimited || false
     });
