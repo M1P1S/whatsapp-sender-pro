@@ -11,6 +11,7 @@ const path = require('path');
 let client = null;
 let qrCodeData = null;
 let isConnected = false;
+let isAuthenticated = false;
 let isInitializing = false;
 
 // Callback para mensagens recebidas (usado pelo bot)
@@ -56,8 +57,9 @@ async function connectToWhatsApp() {
     });
 
     client.on('ready', async () => {
-      console.log('✅ WhatsApp conectado com sucesso!');
+      console.log('✅ WhatsApp conectado com sucesso! (ready event)');
       isConnected = true;
+      isAuthenticated = true;
       qrCodeData = null;
       isInitializing = false;
 
@@ -71,11 +73,32 @@ async function connectToWhatsApp() {
 
     client.on('authenticated', () => {
       console.log('🔐 Autenticado com sucesso!');
+      isAuthenticated = true;
+      qrCodeData = null; // QR já foi escaneado
+
+      // Fallback: se 'ready' não disparar em 30s, verificar estado do client
+      setTimeout(async () => {
+        if (isAuthenticated && !isConnected && client) {
+          console.log('⚠️  ready não disparou em 30s, verificando estado...');
+          try {
+            const state = await client.getState();
+            console.log(`📊 Estado do client: ${state}`);
+            if (state === 'CONNECTED') {
+              console.log('✅ Client está conectado! Corrigindo flag...');
+              isConnected = true;
+              isInitializing = false;
+            }
+          } catch (err) {
+            console.log('⏳ Client ainda não está pronto:', err.message);
+          }
+        }
+      }, 30000);
     });
 
     client.on('auth_failure', (msg) => {
       console.log('❌ Falha na autenticação:', msg);
       isConnected = false;
+      isAuthenticated = false;
       isInitializing = false;
       qrCodeData = null;
     });
@@ -83,6 +106,7 @@ async function connectToWhatsApp() {
     client.on('disconnected', (reason) => {
       console.log('⚠️  WhatsApp desconectado:', reason);
       isConnected = false;
+      isAuthenticated = false;
       qrCodeData = null;
       isInitializing = false;
     });
@@ -333,6 +357,16 @@ function getConnectionStatus() {
   return isConnected;
 }
 
+function getDetailedStatus() {
+  return {
+    connected: isConnected,
+    authenticated: isAuthenticated,
+    initializing: isInitializing,
+    qr: qrCodeData,
+    hasClient: !!client
+  };
+}
+
 function getClient() {
   return client;
 }
@@ -382,6 +416,7 @@ module.exports = {
   sendMessage,
   getQRCode,
   getConnectionStatus,
+  getDetailedStatus,
   getClient,
   getUserInfo,
   checkNumberExists,

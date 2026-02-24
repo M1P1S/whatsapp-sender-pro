@@ -229,7 +229,7 @@ async function disconnectWhatsApp() {
   }
 }
 
-// 🔧 CORREÇÃO 1: Verificar conexão do WhatsApp (SEM deslogar em erro 401/403)
+// Verificar conexão do WhatsApp (com suporte a estado intermediário authenticated)
 async function checkConnection() {
   try {
     const response = await fetch(`${API_URL}/api/status`, {
@@ -239,74 +239,88 @@ async function checkConnection() {
         'Authorization': `Bearer ${token}`
       }
     });
-    
-    // 🔧 CORREÇÃO 1: REMOVIDO bloco que deslogava em erro 401/403
-    // A função checkConnection() serve para verificar status do WHATSAPP,
-    // não para validar autenticação do usuário.
-    
+
     if (!response.ok) {
+      console.warn(`[WA-STATUS] HTTP ${response.status}`);
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    
+
     const data = await response.json();
     retryCount = 0;
-    
+
+    console.log(`[WA-STATUS] connected=${data.connected}, auth=${data.authenticated}, hasQR=${!!data.qr}`);
+
     const statusEl = document.getElementById('status');
     const qrSection = document.getElementById('qr-section');
     const mainSection = document.getElementById('main-section');
-    
+    const disconnectBtn = document.getElementById('disconnectBtn');
+
     if (data.connected) {
-      statusEl.textContent = 'Conectado ✓';
-      statusEl.className = 'status connected';
-      qrSection.style.display = 'none';
-      mainSection.style.display = 'block';
-      
-      // Mostra botão de desconectar
-      document.getElementById('disconnectBtn').style.display = 'inline-block';
-      
-      // Mostra seção de agendamento se for PRO
-      if (userPlan === 'PRO' || userPlan === 'PREMIUM') {
-        document.getElementById('schedule-section').style.display = 'block';
+      // CONNECTED
+      if (statusEl) { statusEl.textContent = 'Conectado'; statusEl.className = 'status connected'; }
+      if (qrSection) qrSection.style.display = 'none';
+      if (mainSection) mainSection.style.display = 'block';
+      if (disconnectBtn) disconnectBtn.style.display = 'inline-block';
+      const scheduleSection = document.getElementById('schedule-section');
+      if (scheduleSection && (userPlan === 'PRO' || userPlan === 'PREMIUM')) {
+        scheduleSection.style.display = 'block';
       }
-    } else {
-      statusEl.textContent = 'Aguardando QR Code...';
-      statusEl.className = 'status disconnected';
-      qrSection.style.display = 'block';
-      mainSection.style.display = 'none';
-      
-      // Oculta botão de desconectar
-      document.getElementById('disconnectBtn').style.display = 'none';
-      
-      // Mostra QR Code
-      if (data.qr) {
-        const qrContainer = document.getElementById('qr-container');
+    } else if (data.authenticated && !data.qr) {
+      // AUTHENTICATED but not ready - intermediate state
+      if (statusEl) { statusEl.textContent = 'Conectando...'; statusEl.className = 'status disconnected'; }
+      if (qrSection) qrSection.style.display = 'block';
+      if (mainSection) mainSection.style.display = 'none';
+      if (disconnectBtn) disconnectBtn.style.display = 'none';
+      const qrContainer = document.getElementById('qr-container');
+      if (qrContainer) {
         qrContainer.innerHTML = `
-          <div style="text-align: center;">
-            <img src="${data.qr}" alt="QR Code" style="max-width: 300px; border: 2px solid #25D366; border-radius: 10px; padding: 10px; background: white;" />
-            <p style="margin-top: 15px; color: #666;">Escaneie o QR Code com seu WhatsApp</p>
-            <p style="font-size: 0.85em; color: #999;">WhatsApp > Configurações > Aparelhos conectados > Conectar aparelho</p>
+          <div style="text-align: center; padding: 20px;">
+            <div style="font-size: 2em; margin-bottom: 15px;">⏳</div>
+            <p style="font-weight: bold; color: #333;">QR Code escaneado!</p>
+            <p style="color: #666; margin-top: 8px;">Aguarde, conectando ao WhatsApp...</p>
           </div>
         `;
       }
+    } else {
+      // DISCONNECTED
+      if (statusEl) { statusEl.textContent = 'Aguardando QR Code...'; statusEl.className = 'status disconnected'; }
+      if (qrSection) qrSection.style.display = 'block';
+      if (mainSection) mainSection.style.display = 'none';
+      if (disconnectBtn) disconnectBtn.style.display = 'none';
+      if (data.qr) {
+        const qrContainer = document.getElementById('qr-container');
+        if (qrContainer) {
+          qrContainer.innerHTML = `
+            <div style="text-align: center;">
+              <img src="${data.qr}" alt="QR Code" style="max-width: 300px; border: 2px solid #25D366; border-radius: 10px; padding: 10px; background: white;" />
+              <p style="margin-top: 15px; color: #666;">Escaneie o QR Code com seu WhatsApp</p>
+            </div>
+          `;
+        }
+      } else if (data.initializing) {
+        const qrContainer = document.getElementById('qr-container');
+        if (qrContainer) {
+          qrContainer.innerHTML = '<p style="color: #999; padding: 20px;">Inicializando WhatsApp...</p>';
+        }
+      }
     }
   } catch (error) {
-    console.error('Erro ao verificar status:', error);
-    
+    console.error('[WA-STATUS] Erro:', error.message);
     retryCount++;
     if (retryCount > MAX_RETRIES) {
       const statusEl = document.getElementById('status');
-      statusEl.textContent = '❌ Erro de conexão';
-      statusEl.className = 'status error';
-      
+      if (statusEl) { statusEl.textContent = 'Erro de conexao'; statusEl.className = 'status error'; }
       const qrContainer = document.getElementById('qr-container');
-      qrContainer.innerHTML = `
-        <div style="text-align: center; padding: 20px;">
-          <p style="color: #f44336;">❌ Erro ao conectar com o servidor</p>
-          <button onclick="location.reload()" style="margin-top: 15px; padding: 10px 20px; background: #25D366; color: white; border: none; border-radius: 5px; cursor: pointer;">
-            🔄 Recarregar Página
-          </button>
-        </div>
-      `;
+      if (qrContainer) {
+        qrContainer.innerHTML = `
+          <div style="text-align: center; padding: 20px;">
+            <p style="color: #f44336;">Erro ao conectar com o servidor</p>
+            <button onclick="location.reload()" style="margin-top: 15px; padding: 10px 20px; background: #25D366; color: white; border: none; border-radius: 5px; cursor: pointer;">
+              Recarregar
+            </button>
+          </div>
+        `;
+      }
     }
   }
 }

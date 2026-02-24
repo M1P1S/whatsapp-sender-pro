@@ -36,7 +36,7 @@ const session = require('express-session');
 const SQLiteStore = require('connect-sqlite3')(session);
 const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
-const { connectToWhatsApp, sendMessage, getQRCode, getConnectionStatus, forceLogout, postStatus, getChats, getChatMessages, sendDirectMessage, getClient } = require('./whatsapp-manager');
+const { connectToWhatsApp, sendMessage, getQRCode, getConnectionStatus, getDetailedStatus, forceLogout, postStatus, getChats, getChatMessages, sendDirectMessage, getClient, checkNumberExists, getUserInfo } = require('./whatsapp-manager');
 const PDFDocument = require('pdfkit');
 const db = require('./database');
 const paymentService = require('./payment'); 
@@ -693,11 +693,20 @@ app.post('/api/plan/upgrade', authenticateToken, async (req, res) => {
 // ============================================
 app.get('/api/whatsapp/status', authenticateToken, async (req, res) => {
   try {
-    const connected = getConnectionStatus();
-    
+    const detailed = getDetailedStatus();
+    const connected = detailed.connected;
+    const hasQR = !!detailed.qr;
+
+    let status = 'disconnected';
+    if (connected) status = 'connected';
+    else if (hasQR) status = 'qr';
+    else if (detailed.authenticated) status = 'authenticating';
+    else if (detailed.initializing) status = 'initializing';
+
     res.json({
-      status: connected ? 'connected' : 'disconnected',
-      connected: connected
+      status,
+      connected,
+      authenticated: detailed.authenticated
     });
   } catch (error) {
     console.error('❌ Erro ao verificar status:', error);
@@ -1022,12 +1031,34 @@ app.get('/api/qrcode', authenticateToken, (req, res) => {
   }
 });
 
-// Status
-app.get('/api/status', authenticateToken, (req, res) => {
+// Status (retorna estado detalhado da conexão)
+app.get('/api/status', authenticateToken, async (req, res) => {
   try {
-    const connected = getConnectionStatus();
-    const qr = getQRCode();
-    res.json({ connected, qr });
+    const status = getDetailedStatus();
+
+    // Fallback: se autenticado mas não conectado, verificar estado real do client
+    let actuallyConnected = status.connected;
+    if (!actuallyConnected && status.authenticated) {
+      try {
+        const client = getClient();
+        if (client) {
+          const state = await client.getState();
+          if (state === 'CONNECTED') {
+            actuallyConnected = true;
+            console.log('[STATUS] Fallback: client CONNECTED mas flag era false');
+          }
+        }
+      } catch (e) {
+        // client.getState() pode falhar se não estiver pronto
+      }
+    }
+
+    res.json({
+      connected: actuallyConnected,
+      qr: status.qr,
+      authenticated: status.authenticated,
+      initializing: status.initializing
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1246,7 +1277,6 @@ app.post('/api/test-number', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Número é obrigatório' });
     }
     
-    const { checkNumberExists } = require('./whatsapp-manager');
     const cleaned = String(number).replace(/\D/g, '');
     const exists = await checkNumberExists(cleaned);
     
