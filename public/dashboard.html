@@ -54,6 +54,48 @@
     .pro-section { border-left: 4px solid #FFD700; background: #fffbeb; padding: 15px; border-radius: 8px; margin: 15px 0; }
     #envio-contacts-preview { max-height: 150px; overflow-y: auto; background: #f5f5f5; padding: 10px; border-radius: 8px; margin-top: 10px; }
     #envio-progress { margin-top: 15px; }
+    .btn-action { border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 0.88em; font-weight: bold; color: white; transition: transform 0.15s; }
+    .btn-action:hover { transform: scale(1.03); }
+    .btn-green { background: #28a745; }
+    .btn-dark-green { background: #2e7d32; }
+    .btn-gray { background: #6c757d; }
+    .btn-red { background: #dc3545; }
+    .btn-dark { background: #333; }
+
+    /* ===== MODAL GERENCIAR CONTATOS ===== */
+    .modal-overlay { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center; }
+    .modal-overlay.active { display:flex; }
+    .modal-content { background:white; border-radius:16px; width:95%; max-width:950px; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,0.3); }
+    .modal-header { padding:18px 25px; border-bottom:1px solid #e0e0e0; display:flex; justify-content:space-between; align-items:center; }
+    .modal-header h2 { font-size:1.2em; display:flex; align-items:center; gap:8px; }
+    .modal-close { background:#dc3545; color:white; border:none; padding:8px 18px; border-radius:8px; cursor:pointer; font-weight:bold; font-size:0.9em; }
+    .modal-filters { padding:15px 25px; border-bottom:1px solid #e0e0e0; display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+    .modal-filters .filter-group { display:flex; flex-direction:column; gap:3px; }
+    .modal-filters .filter-group label { font-size:0.78em; color:#666; font-weight:bold; display:flex; align-items:center; gap:4px; }
+    .modal-filters input, .modal-filters select { padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:0.9em; }
+    .modal-actions { padding:12px 25px; border-bottom:1px solid #e0e0e0; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .modal-counter { padding:8px 25px; background:#e8f5e9; font-weight:bold; color:#2e7d32; text-align:center; font-size:0.9em; }
+    .modal-body { flex:1; overflow-y:auto; padding:0; }
+    .contact-row { padding:12px 25px; border-bottom:1px solid #f0f0f0; display:flex; align-items:center; gap:12px; cursor:pointer; transition:background 0.1s; }
+    .contact-row:hover { background:#f8f9fa; }
+    .contact-row.selected { background:#e8f5e9; }
+    .contact-row input[type="checkbox"] { width:18px; height:18px; cursor:pointer; flex-shrink:0; }
+    .contact-name { font-weight:bold; color:#333; font-size:0.92em; }
+    .contact-phone { color:#666; font-size:0.88em; display:flex; align-items:center; gap:4px; }
+    .contact-source { font-size:0.75em; padding:2px 8px; border-radius:10px; display:inline-flex; align-items:center; gap:3px; }
+    .source-csv { background:#e3f2fd; color:#1565c0; }
+    .source-google { background:#fce4ec; color:#c62828; }
+    .source-manual { background:#f3e5f5; color:#6a1b9a; }
+    .modal-pagination { padding:10px 25px; border-top:1px solid #e0e0e0; display:flex; justify-content:space-between; align-items:center; font-size:0.85em; color:#666; }
+    .modal-pagination button { background:#25D366; color:white; border:none; padding:6px 14px; border-radius:6px; cursor:pointer; font-size:0.85em; }
+    .modal-pagination button:disabled { background:#ccc; cursor:not-allowed; }
+
+    /* ===== MODAL CRIAR SUBLISTA ===== */
+    .sublist-modal-content { background:white; border-radius:12px; padding:25px; width:400px; max-width:90%; }
+    .sublist-modal-content h3 { margin-bottom:15px; }
+    .sublist-modal-content input { width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px; font-size:1em; margin-bottom:15px; }
+    .sublist-modal-content .btn-row { display:flex; gap:10px; }
+    .sublist-modal-content .btn-row button { flex:1; padding:10px; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:0.95em; }
 
     /* ===== TAB: CHAT ===== */
     .chat-layout { display: flex; flex: 1; overflow: hidden; }
@@ -186,13 +228,27 @@
     <!-- TAB: ENVIO EM MASSA -->
     <div id="tab-envio" class="tab-content active">
       <div class="envio-container">
+
+        <!-- 1. IMPORTAR CONTATOS (FREE) -->
         <h3>1. Importar Contatos</h3>
         <div style="display:flex; gap:10px; align-items:center;">
           <input type="file" id="contactFile" accept=".csv,.xlsx,.txt" style="flex:1;">
           <button class="btn-test" onclick="uploadContacts()">Carregar</button>
         </div>
+        <p style="font-size:0.8em; color:#888; margin-top:5px;">CSV, XLSX ou TXT. Duplicados removidos automaticamente.</p>
+
+        <!-- 2. COLAR LISTA DE NUMEROS (FREE) -->
+        <h3>2. Colar Lista de Numeros</h3>
+        <textarea id="pasteNumbers" placeholder="Cole os numeros aqui, um por linha...&#10;Ex:&#10;5561999999999&#10;5511988888888&#10;5521977777777" rows="4" style="min-height:80px;"></textarea>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <button class="btn-test" onclick="pasteContacts()" style="flex:1;">Adicionar Numeros</button>
+        </div>
+        <p style="font-size:0.8em; color:#888; margin-top:5px;">Separe por linha, virgula ou ponto-e-virgula. Duplicados removidos automaticamente.</p>
+
+        <!-- CONTATOS CARREGADOS -->
         <div id="envio-contacts-preview"></div>
 
+        <!-- 3. TESTE INDIVIDUAL (FREE) -->
         <div class="info-box" style="margin-top:15px;">
           <strong>Teste Individual</strong>
           <div style="display:flex; gap:8px; margin-top:8px;">
@@ -202,7 +258,26 @@
           <div id="testResult" style="margin-top:8px; font-size:0.9em;"></div>
         </div>
 
-        <h3>2. Mensagem</h3>
+        <!-- GOOGLE CONTATOS + GERENCIAR CONTATOS (PREMIUM) -->
+        <div id="premium-contacts-section" class="pro-section" style="display:none;">
+          <strong>Gerenciamento Avancado de Contatos</strong>
+          <p style="font-size:0.8em; color:#888; margin:5px 0 10px;">Importe do Google, gerencie sua base e crie sublistas.</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn-action btn-dark-green" onclick="importGoogleContacts()">
+              <span style="margin-right:4px;">G</span> Google Contatos
+            </button>
+            <button class="btn-action btn-green" onclick="openContactsModal()">
+              Gerenciar Contatos
+            </button>
+            <button class="btn-action btn-gray" onclick="openSublistSelector()">
+              Usar Sublista
+            </button>
+          </div>
+          <div id="stored-contacts-count" style="font-size:0.82em; color:#666; margin-top:8px;"></div>
+        </div>
+
+        <!-- 4. CONFIGURAR MENSAGEM (FREE) -->
+        <h3>3. Configurar Mensagem</h3>
         <textarea id="message" placeholder="Digite sua mensagem aqui..." rows="4"></textarea>
 
         <div id="variations-section" class="pro-section" style="display:none;">
@@ -212,7 +287,8 @@
           <button type="button" class="btn-test" onclick="addVariation()" id="btn-add-variation" style="margin-top:8px;">+ Adicionar variacao</button>
         </div>
 
-        <h3>3. Midia (opcional)</h3>
+        <!-- MIDIA (PREMIUM) -->
+        <h3>4. Midia (opcional)</h3>
         <div id="media-section">
           <input type="file" id="mediaFile" accept="image/*,video/mp4,video/avi,video/mov,video/mkv,video/webm,audio/*,.pdf,.doc,.docx">
           <p style="font-size:0.8em; color:#888; margin-top:5px;">Imagens, Videos, Audios, PDFs, Documentos</p>
@@ -222,6 +298,7 @@
           <a href="/upgrade.html" style="color:#0066cc; font-weight:bold;">Fazer upgrade</a>
         </div>
 
+        <!-- ANTI-BAN (PREMIUM) -->
         <div id="interval-section" class="pro-section" style="display:none;">
           <strong>Intervalo entre mensagens</strong>
           <div style="display:flex; gap:15px; margin-top:8px;">
@@ -243,13 +320,6 @@
           <p style="font-size:0.8em; color:#888; margin-top:5px;">Ex: pausa de 30s a cada 20 mensagens</p>
         </div>
 
-        <div id="filter-section" class="pro-section" style="display:none;">
-          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-            <input type="checkbox" id="remove-duplicates" checked style="width:18px; height:18px;">
-            <strong>Remover contatos duplicados</strong>
-          </label>
-        </div>
-
         <button class="btn-send" onclick="sendMessages()">Enviar Agora</button>
 
         <div id="schedule-section" class="pro-section" style="display:none;">
@@ -262,6 +332,91 @@
         </div>
 
         <div id="envio-progress"></div>
+      </div>
+    </div>
+
+    <!-- MODAL: GERENCIAR CONTATOS -->
+    <div class="modal-overlay" id="contacts-modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Gerenciar Contatos</h2>
+          <button class="modal-close" onclick="closeContactsModal()">X Fechar</button>
+        </div>
+        <div class="modal-filters">
+          <div class="filter-group" style="flex:1; min-width:150px;">
+            <label>Buscar:</label>
+            <input type="text" id="cm-search" placeholder="Nome ou telefone..." oninput="debounceLoadContacts()">
+          </div>
+          <div class="filter-group">
+            <label>DDD:</label>
+            <select id="cm-ddd" onchange="loadModalContacts()"><option value="">Todos os DDDs</option></select>
+          </div>
+          <div class="filter-group">
+            <label>Fonte:</label>
+            <select id="cm-source" onchange="loadModalContacts()"><option value="">Todas as fontes</option></select>
+          </div>
+          <div class="filter-group">
+            <label>Mostrar:</label>
+            <select id="cm-limit" onchange="loadModalContacts()">
+              <option value="50">50 contatos</option>
+              <option value="100">100 contatos</option>
+              <option value="200">200 contatos</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-action btn-green" onclick="cmSelectPage()">Selecionar Esta Pagina</button>
+          <button class="btn-action btn-dark-green" onclick="cmSelectAll()">Selecionar Todos</button>
+          <button class="btn-action btn-gray" onclick="cmDeselectAll()">X Desmarcar Todos</button>
+          <button class="btn-action btn-red" onclick="cmSelectByDDD()">Selecionar DDD Filtrado</button>
+          <button class="btn-action btn-dark" onclick="openCreateSublist()">+ Criar Sublista</button>
+        </div>
+        <div class="modal-counter" id="cm-counter">0 contato(s) selecionado(s) de 0</div>
+        <div id="cm-pagination-top" class="modal-pagination" style="border-bottom:1px solid #e0e0e0; border-top:none;">
+          <span id="cm-showing">Mostrando 0-0 de 0 contatos</span>
+          <div style="display:flex; gap:6px;">
+            <button onclick="cmPrevPage()" id="cm-prev-btn" disabled>&lt; Anterior</button>
+            <button onclick="cmNextPage()" id="cm-next-btn" disabled>Proximo &gt;</button>
+          </div>
+        </div>
+        <div class="modal-body" id="cm-body">
+          <div style="text-align:center; padding:40px; color:#999;">Carregando contatos...</div>
+        </div>
+        <div class="modal-pagination">
+          <div>
+            <button class="btn-action btn-green" onclick="cmUseSelected()" style="padding:10px 25px;">Usar Selecionados para Envio</button>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button onclick="cmPrevPage()" disabled>&lt; Anterior</button>
+            <button onclick="cmNextPage()" disabled>Proximo &gt;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: CRIAR SUBLISTA -->
+    <div class="modal-overlay" id="sublist-create-modal">
+      <div class="sublist-modal-content">
+        <h3>+ Criar Sublista</h3>
+        <p style="font-size:0.85em; color:#666; margin-bottom:12px;" id="sublist-selected-info">0 contatos selecionados</p>
+        <input type="text" id="sublist-name-input" placeholder="Nome da sublista...">
+        <div class="btn-row">
+          <button style="background:#6c757d; color:white;" onclick="closeCreateSublist()">Cancelar</button>
+          <button style="background:#25D366; color:white;" onclick="confirmCreateSublist()">Criar Sublista</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: SELECIONAR SUBLISTA -->
+    <div class="modal-overlay" id="sublist-selector-modal">
+      <div class="sublist-modal-content" style="width:500px;">
+        <h3>Selecionar Sublista</h3>
+        <div id="sublists-list" style="max-height:300px; overflow-y:auto; margin:15px 0;">
+          <div style="text-align:center; padding:20px; color:#999;">Carregando sublistas...</div>
+        </div>
+        <div class="btn-row">
+          <button style="background:#6c757d; color:white;" onclick="closeSublistSelector()">Fechar</button>
+        </div>
       </div>
     </div>
 
@@ -546,8 +701,8 @@
         const el = document.getElementById(id);
         if (el) el.style.display = pro ? 'flex' : 'none';
       });
-      // Envio sections
-      ['interval-section','long-pause-section','filter-section','schedule-section','variations-section'].forEach(id => {
+      // Envio PREMIUM sections
+      ['interval-section','long-pause-section','schedule-section','variations-section','premium-contacts-section'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = pro ? 'block' : 'none';
       });
@@ -564,6 +719,8 @@
           });
         }
       }
+      // Load stored contacts count for PREMIUM
+      if (pro) { loadStoredContactsCount(); }
     }
 
     // ===== WHATSAPP STATUS / QR =====
@@ -643,6 +800,12 @@
     }
 
     // ===== ENVIO EM MASSA =====
+    function updateContactsPreview() {
+      const preview = document.getElementById('envio-contacts-preview');
+      if (!contacts.length) { preview.innerHTML = ''; return; }
+      preview.innerHTML = '<strong>' + contacts.length + ' contatos carregados</strong><div style="margin-top:8px; max-height:100px; overflow-y:auto; font-size:0.85em; color:#666;">' + contacts.slice(0, 20).map(c => '<div>' + c + '</div>').join('') + (contacts.length > 20 ? '<div>... e mais ' + (contacts.length - 20) + '</div>' : '') + '</div>';
+    }
+
     async function uploadContacts() {
       const fileInput = document.getElementById('contactFile');
       const file = fileInput.files[0];
@@ -650,32 +813,41 @@
       const formData = new FormData();
       formData.append('file', file);
       try {
-        const res = await fetch(API_URL + '/api/contacts/upload', { method: 'POST', headers: authHeaders(), body: formData });
+        const res = await fetch(API_URL + '/api/upload-contacts', { method: 'POST', headers: authHeaders(), body: formData });
         const data = await res.json();
         if (data.contacts && data.contacts.length > 0) {
           contacts = data.contacts;
-          // Remove duplicates if checked
-          if (isPremium() && document.getElementById('remove-duplicates')?.checked) {
-            contacts = removeDuplicates(contacts);
-          }
-          const preview = document.getElementById('envio-contacts-preview');
-          preview.innerHTML = '<strong>' + contacts.length + ' contatos carregados</strong><div style="margin-top:8px; max-height:100px; overflow-y:auto; font-size:0.85em; color:#666;">' + contacts.slice(0, 20).map(c => '<div>' + c + '</div>').join('') + (contacts.length > 20 ? '<div>... e mais ' + (contacts.length - 20) + '</div>' : '') + '</div>';
+          updateContactsPreview();
+          let msg = contacts.length + ' contatos carregados!';
+          if (data.duplicatesRemoved > 0) msg += ' (' + data.duplicatesRemoved + ' duplicados removidos)';
+          console.log(msg);
         } else {
           alert('Nenhum contato encontrado no arquivo');
         }
       } catch (err) { alert('Erro: ' + err.message); }
     }
 
-    function removeDuplicates(list) {
-      const seen = new Set();
-      const unique = [];
-      let dupes = 0;
-      for (const c of list) {
-        const norm = String(c).replace(/\D/g, '').replace(/^0+/, '');
-        if (!seen.has(norm)) { seen.add(norm); unique.push(c); } else { dupes++; }
-      }
-      if (dupes > 0) alert(dupes + ' duplicado(s) removido(s)! Total: ' + unique.length);
-      return unique;
+    async function pasteContacts() {
+      const text = document.getElementById('pasteNumbers').value.trim();
+      if (!text) { alert('Cole os numeros primeiro!'); return; }
+      try {
+        const res = await fetch(API_URL + '/api/contacts/paste', {
+          method: 'POST',
+          headers: authHeaders({'Content-Type':'application/json'}),
+          body: JSON.stringify({ numbers: text })
+        });
+        const data = await res.json();
+        if (data.contacts && data.contacts.length > 0) {
+          contacts = data.contacts;
+          updateContactsPreview();
+          document.getElementById('pasteNumbers').value = '';
+          let msg = contacts.length + ' contatos adicionados!';
+          if (data.duplicatesRemoved > 0) msg += ' (' + data.duplicatesRemoved + ' duplicados removidos)';
+          alert(msg);
+        } else {
+          alert('Nenhum numero valido encontrado');
+        }
+      } catch (err) { alert('Erro: ' + err.message); }
     }
 
     async function testNumber() {
@@ -684,10 +856,296 @@
       const result = document.getElementById('testResult');
       result.innerHTML = 'Verificando...';
       try {
-        const res = await fetch(API_URL + '/api/check-number', { method: 'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({ number: num }) });
+        const res = await fetch(API_URL + '/api/test-number', { method: 'POST', headers: authHeaders({'Content-Type':'application/json'}), body: JSON.stringify({ number: num }) });
         const data = await res.json();
         result.innerHTML = data.exists ? '<span style="color:#28a745;">Numero existe no WhatsApp!</span>' : '<span style="color:#dc3545;">Numero NAO encontrado</span>';
       } catch (err) { result.innerHTML = '<span style="color:#dc3545;">Erro: ' + err.message + '</span>'; }
+    }
+
+    // ===== PREMIUM: STORED CONTACTS COUNT =====
+    async function loadStoredContactsCount() {
+      try {
+        const res = await fetch(API_URL + '/api/contacts?limit=1', { headers: authHeaders() });
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('stored-contacts-count').textContent = data.total + ' contatos salvos na base';
+        }
+      } catch(e) {}
+    }
+
+    // ===== GOOGLE CONTACTS =====
+    async function importGoogleContacts() {
+      try {
+        const res = await fetch(API_URL + '/api/google/auth-url', { headers: authHeaders() });
+        const data = await res.json();
+        if (data.authUrl) {
+          window.open(data.authUrl, '_blank', 'width=500,height=600');
+        } else {
+          alert(data.error || 'Google Contacts nao configurado');
+        }
+      } catch(err) { alert('Erro: ' + err.message); }
+    }
+
+    // Check Google import result on page load
+    (function() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('google_import') === 'success') {
+        alert('Google Contacts importados! ' + (params.get('imported') || '') + ' contatos adicionados.');
+        window.history.replaceState({}, '', window.location.pathname);
+      } else if (params.get('google_import') === 'error') {
+        alert('Erro ao importar Google Contacts: ' + (params.get('message') || 'Erro desconhecido'));
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    })();
+
+    // ===== GERENCIAR CONTATOS MODAL =====
+    let cmPage = 1;
+    let cmTotal = 0;
+    let cmPages = 1;
+    let cmSelectedIds = new Set();
+    let cmCurrentContacts = [];
+    let cmDebounceTimer = null;
+
+    function debounceLoadContacts() {
+      clearTimeout(cmDebounceTimer);
+      cmDebounceTimer = setTimeout(() => { cmPage = 1; loadModalContacts(); }, 300);
+    }
+
+    function openContactsModal() {
+      document.getElementById('contacts-modal').classList.add('active');
+      cmSelectedIds.clear();
+      cmPage = 1;
+      loadModalContacts();
+    }
+
+    function closeContactsModal() {
+      document.getElementById('contacts-modal').classList.remove('active');
+    }
+
+    async function loadModalContacts() {
+      const search = document.getElementById('cm-search').value.trim();
+      const ddd = document.getElementById('cm-ddd').value;
+      const source = document.getElementById('cm-source').value;
+      const limit = document.getElementById('cm-limit').value;
+      try {
+        const params = new URLSearchParams({ search, ddd, source, page: cmPage, limit });
+        const res = await fetch(API_URL + '/api/contacts?' + params, { headers: authHeaders() });
+        const data = await res.json();
+        if (!data.success) { alert(data.error); return; }
+
+        cmTotal = data.total;
+        cmPages = data.pages;
+        cmCurrentContacts = data.contacts;
+
+        // Update filter dropdowns
+        const dddSelect = document.getElementById('cm-ddd');
+        const currentDDD = dddSelect.value;
+        dddSelect.innerHTML = '<option value="">Todos os DDDs</option>' + (data.ddds || []).map(d => '<option value="' + d + '"' + (d === currentDDD ? ' selected' : '') + '>DDD ' + d + '</option>').join('');
+
+        const sourceSelect = document.getElementById('cm-source');
+        const currentSource = sourceSelect.value;
+        sourceSelect.innerHTML = '<option value="">Todas as fontes</option>' + (data.sources || []).map(s => '<option value="' + s + '"' + (s === currentSource ? ' selected' : '') + '>' + s.charAt(0).toUpperCase() + s.slice(1) + '</option>').join('');
+
+        renderModalContacts();
+        updateCMCounter();
+        updateCMPagination();
+      } catch(err) {
+        document.getElementById('cm-body').innerHTML = '<div style="text-align:center; padding:30px; color:#dc3545;">Erro: ' + err.message + '</div>';
+      }
+    }
+
+    function renderModalContacts() {
+      const body = document.getElementById('cm-body');
+      if (!cmCurrentContacts.length) {
+        body.innerHTML = '<div style="text-align:center; padding:40px; color:#999;">Nenhum contato encontrado</div>';
+        return;
+      }
+      body.innerHTML = cmCurrentContacts.map(c => {
+        const checked = cmSelectedIds.has(c.id) ? 'checked' : '';
+        const selectedClass = cmSelectedIds.has(c.id) ? 'selected' : '';
+        const sourceClass = 'source-' + (c.source || 'manual');
+        const sourceIcon = c.source === 'google' ? '📂' : (c.source === 'csv' ? '📄' : '✏️');
+        return '<div class="contact-row ' + selectedClass + '" onclick="cmToggleContact(' + c.id + ', this)">' +
+          '<input type="checkbox" ' + checked + ' onclick="event.stopPropagation(); cmToggleContact(' + c.id + ', this.parentElement)">' +
+          '<div style="flex:1; min-width:0;">' +
+            '<div class="contact-name">' + escapeHtml(c.name || 'Sem nome') + '</div>' +
+            '<div class="contact-phone">📱 ' + c.phone + (c.ddd ? ' (DDD ' + c.ddd + ')' : '') + '</div>' +
+          '</div>' +
+          '<span class="contact-source ' + sourceClass + '">' + sourceIcon + ' ' + (c.source || 'manual') + '</span>' +
+        '</div>';
+      }).join('');
+    }
+
+    function cmToggleContact(id, rowEl) {
+      if (cmSelectedIds.has(id)) {
+        cmSelectedIds.delete(id);
+        rowEl.classList.remove('selected');
+        rowEl.querySelector('input').checked = false;
+      } else {
+        cmSelectedIds.add(id);
+        rowEl.classList.add('selected');
+        rowEl.querySelector('input').checked = true;
+      }
+      updateCMCounter();
+    }
+
+    function cmSelectPage() {
+      cmCurrentContacts.forEach(c => cmSelectedIds.add(c.id));
+      renderModalContacts();
+      updateCMCounter();
+    }
+
+    async function cmSelectAll() {
+      try {
+        const search = document.getElementById('cm-search').value.trim();
+        const ddd = document.getElementById('cm-ddd').value;
+        const source = document.getElementById('cm-source').value;
+        const params = new URLSearchParams({ search, ddd, source });
+        const res = await fetch(API_URL + '/api/contacts/all-ids?' + params, { headers: authHeaders() });
+        const data = await res.json();
+        if (data.success) {
+          data.ids.forEach(id => cmSelectedIds.add(id));
+          renderModalContacts();
+          updateCMCounter();
+        }
+      } catch(err) { alert('Erro: ' + err.message); }
+    }
+
+    function cmDeselectAll() {
+      cmSelectedIds.clear();
+      renderModalContacts();
+      updateCMCounter();
+    }
+
+    async function cmSelectByDDD() {
+      const ddd = document.getElementById('cm-ddd').value;
+      if (!ddd) { alert('Selecione um DDD no filtro primeiro!'); return; }
+      try {
+        const params = new URLSearchParams({ ddd });
+        const res = await fetch(API_URL + '/api/contacts/all-ids?' + params, { headers: authHeaders() });
+        const data = await res.json();
+        if (data.success) {
+          data.ids.forEach(id => cmSelectedIds.add(id));
+          renderModalContacts();
+          updateCMCounter();
+        }
+      } catch(err) { alert('Erro: ' + err.message); }
+    }
+
+    function updateCMCounter() {
+      document.getElementById('cm-counter').textContent = cmSelectedIds.size + ' contato(s) selecionado(s) de ' + cmTotal;
+    }
+
+    function updateCMPagination() {
+      const limit = parseInt(document.getElementById('cm-limit').value);
+      const start = cmTotal === 0 ? 0 : (cmPage - 1) * limit + 1;
+      const end = Math.min(cmPage * limit, cmTotal);
+      const showingEl = document.getElementById('cm-showing');
+      if (showingEl) showingEl.textContent = 'Mostrando ' + start + '-' + end + ' de ' + cmTotal + ' contatos';
+      document.querySelectorAll('#cm-prev-btn').forEach(b => b.disabled = cmPage <= 1);
+      document.querySelectorAll('#cm-next-btn').forEach(b => b.disabled = cmPage >= cmPages);
+    }
+
+    function cmPrevPage() { if (cmPage > 1) { cmPage--; loadModalContacts(); } }
+    function cmNextPage() { if (cmPage < cmPages) { cmPage++; loadModalContacts(); } }
+
+    async function cmUseSelected() {
+      if (!cmSelectedIds.size) { alert('Selecione pelo menos um contato!'); return; }
+      try {
+        const res = await fetch(API_URL + '/api/contacts/by-ids', {
+          method: 'POST',
+          headers: authHeaders({'Content-Type':'application/json'}),
+          body: JSON.stringify({ ids: Array.from(cmSelectedIds) })
+        });
+        const data = await res.json();
+        if (data.success && data.contacts.length > 0) {
+          contacts = data.contacts.map(c => c.phone);
+          updateContactsPreview();
+          closeContactsModal();
+          alert(contacts.length + ' contatos selecionados para envio!');
+        }
+      } catch(err) { alert('Erro: ' + err.message); }
+    }
+
+    // ===== SUBLISTAS =====
+    function openCreateSublist() {
+      if (!cmSelectedIds.size) { alert('Selecione contatos antes de criar uma sublista!'); return; }
+      document.getElementById('sublist-selected-info').textContent = cmSelectedIds.size + ' contatos selecionados';
+      document.getElementById('sublist-name-input').value = '';
+      document.getElementById('sublist-create-modal').classList.add('active');
+    }
+
+    function closeCreateSublist() {
+      document.getElementById('sublist-create-modal').classList.remove('active');
+    }
+
+    async function confirmCreateSublist() {
+      const name = document.getElementById('sublist-name-input').value.trim();
+      if (!name) { alert('Digite um nome para a sublista!'); return; }
+      try {
+        const res = await fetch(API_URL + '/api/sublists', {
+          method: 'POST',
+          headers: authHeaders({'Content-Type':'application/json'}),
+          body: JSON.stringify({ name, contactIds: Array.from(cmSelectedIds) })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert('Sublista "' + name + '" criada com ' + data.sublist.memberCount + ' contatos!');
+          closeCreateSublist();
+        } else { alert('Erro: ' + (data.error || 'Falha')); }
+      } catch(err) { alert('Erro: ' + err.message); }
+    }
+
+    async function openSublistSelector() {
+      document.getElementById('sublist-selector-modal').classList.add('active');
+      const container = document.getElementById('sublists-list');
+      container.innerHTML = '<div style="text-align:center; padding:20px; color:#999;">Carregando...</div>';
+      try {
+        const res = await fetch(API_URL + '/api/sublists', { headers: authHeaders() });
+        const data = await res.json();
+        if (!data.success || !data.sublists.length) {
+          container.innerHTML = '<div style="text-align:center; padding:20px; color:#999;">Nenhuma sublista criada</div>';
+          return;
+        }
+        container.innerHTML = data.sublists.map(s =>
+          '<div style="display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #f0f0f0; cursor:pointer;" onclick="useSublist(' + s.id + ')" onmouseover="this.style.background=\'#f5f5f5\'" onmouseout="this.style.background=\'white\'">' +
+            '<div><strong>' + escapeHtml(s.name) + '</strong><div style="font-size:0.82em; color:#666;">' + s.member_count + ' contatos</div></div>' +
+            '<div style="display:flex; gap:6px;">' +
+              '<button class="btn-action btn-green" onclick="event.stopPropagation(); useSublist(' + s.id + ')" style="padding:6px 12px; font-size:0.8em;">Usar</button>' +
+              '<button class="btn-action btn-red" onclick="event.stopPropagation(); deleteSublist(' + s.id + ')" style="padding:6px 12px; font-size:0.8em;">X</button>' +
+            '</div>' +
+          '</div>'
+        ).join('');
+      } catch(err) {
+        container.innerHTML = '<div style="text-align:center; padding:20px; color:#dc3545;">Erro: ' + err.message + '</div>';
+      }
+    }
+
+    function closeSublistSelector() {
+      document.getElementById('sublist-selector-modal').classList.remove('active');
+    }
+
+    async function useSublist(sublistId) {
+      try {
+        const res = await fetch(API_URL + '/api/sublists/' + sublistId + '/contacts', { headers: authHeaders() });
+        const data = await res.json();
+        if (data.success && data.contacts.length > 0) {
+          contacts = data.contacts.map(c => c.phone);
+          updateContactsPreview();
+          closeSublistSelector();
+          alert(contacts.length + ' contatos carregados da sublista!');
+        } else {
+          alert('Sublista vazia');
+        }
+      } catch(err) { alert('Erro: ' + err.message); }
+    }
+
+    async function deleteSublist(id) {
+      if (!confirm('Excluir esta sublista?')) return;
+      try {
+        await fetch(API_URL + '/api/sublists/' + id, { method: 'DELETE', headers: authHeaders() });
+        openSublistSelector();
+      } catch(err) { alert('Erro: ' + err.message); }
     }
 
     // ===== VARIACOES DE MENSAGEM =====

@@ -157,6 +157,53 @@ function initDatabase() {
     }
   });
 
+  // Tabela de contatos importados
+  db.run(`
+    CREATE TABLE IF NOT EXISTS contacts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      name TEXT,
+      phone TEXT NOT NULL,
+      ddd TEXT,
+      source TEXT DEFAULT 'manual',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      UNIQUE(user_id, phone)
+    )
+  `, (err) => {
+    if (err) console.error('❌ Erro ao criar tabela contacts:', err);
+    else console.log('✅ Tabela contacts criada/verificada');
+  });
+
+  // Tabela de sublistas
+  db.run(`
+    CREATE TABLE IF NOT EXISTS sublists (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `, (err) => {
+    if (err) console.error('❌ Erro ao criar tabela sublists:', err);
+    else console.log('✅ Tabela sublists criada/verificada');
+  });
+
+  // Tabela de membros das sublistas
+  db.run(`
+    CREATE TABLE IF NOT EXISTS sublist_members (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sublist_id INTEGER NOT NULL,
+      contact_id INTEGER NOT NULL,
+      FOREIGN KEY (sublist_id) REFERENCES sublists(id) ON DELETE CASCADE,
+      FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE,
+      UNIQUE(sublist_id, contact_id)
+    )
+  `, (err) => {
+    if (err) console.error('❌ Erro ao criar tabela sublist_members:', err);
+    else console.log('✅ Tabela sublist_members criada/verificada');
+  });
+
   // 🔧 EXECUTAR MIGRAÇÃO após criar tabelas
   setTimeout(() => {
     migrateDatabase();
@@ -698,6 +745,251 @@ async function deleteBotRule(ruleId, userId) {
 }
 
 // ============================================
+// FUNÇÕES DE CONTATOS
+// ============================================
+
+// Importar contatos em lote (upsert - ignora duplicados)
+async function importContacts(userId, contactsList, source = 'csv') {
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO contacts (user_id, name, phone, ddd, source) VALUES (?, ?, ?, ?, ?)`
+  );
+  let imported = 0;
+  let skipped = 0;
+  for (const c of contactsList) {
+    const phone = String(c.phone || c).replace(/\D/g, '');
+    if (phone.length < 10) { skipped++; continue; }
+    const ddd = phone.length >= 12 ? phone.substring(2, 4) : (phone.length >= 10 ? phone.substring(0, 2) : '');
+    const name = c.name || '';
+    try {
+      await new Promise((resolve, reject) => {
+        stmt.run([userId, name, phone, ddd, source], function(err) {
+          if (err) { skipped++; resolve(); }
+          else if (this.changes > 0) { imported++; resolve(); }
+          else { skipped++; resolve(); }
+        });
+      });
+    } catch(e) { skipped++; }
+  }
+  stmt.finalize();
+  return { imported, skipped };
+}
+
+// Listar contatos com filtros e paginação
+async function getContacts(userId, { search = '', ddd = '', source = '', page = 1, limit = 50 } = {}) {
+  return new Promise((resolve, reject) => {
+    let where = 'WHERE user_id = ?';
+    const params = [userId];
+
+    if (search) {
+      where += ' AND (name LIKE ? OR phone LIKE ?)';
+      params.push('%' + search + '%', '%' + search + '%');
+    }
+    if (ddd) {
+      where += ' AND ddd = ?';
+      params.push(ddd);
+    }
+    if (source) {
+      where += ' AND source = ?';
+      params.push(source);
+    }
+
+    // Total count
+    db.get(`SELECT COUNT(*) as total FROM contacts ${where}`, params, (err, countRow) => {
+      if (err) return reject(err);
+      const total = countRow.total;
+      const offset = (page - 1) * limit;
+      const queryParams = [...params, limit, offset];
+
+      db.all(
+        `SELECT * FROM contacts ${where} ORDER BY name ASC, phone ASC LIMIT ? OFFSET ?`,
+        queryParams,
+        (err, rows) => {
+          if (err) return reject(err);
+          resolve({ contacts: rows || [], total, page, limit, pages: Math.ceil(total / limit) });
+        }
+      );
+    });
+  });
+}
+
+// Obter DDDs distintos de um usuário
+async function getContactDDDs(userId) {
+  return new Promise((resolve, reject) => {
+    db.all(
+      'SELECT DISTINCT ddd FROM contacts WHERE user_id = ? AND ddd != "" ORDER BY ddd',
+      [userId],
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve((rows || []).map(r => r.ddd));
+      }
+    );
+  });
+}
+
+// Obter fontes distintas de um usuário
+async function getContactSources(userId) {
+  return new Promise((resolve, reject) => {
+    db.all(
+      'SELECT DISTINCT source FROM contacts WHERE user_id = ? ORDER BY source',
+      [userId],
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve((rows || []).map(r => r.source));
+      }
+    );
+  });
+}
+
+// Deletar contato
+async function deleteContact(contactId, userId) {
+  return new Promise((resolve, reject) => {
+    db.run('DELETE FROM contacts WHERE id = ? AND user_id = ?', [contactId, userId], function(err) {
+      if (err) reject(err);
+      else resolve(this.changes);
+    });
+  });
+}
+
+// Deletar TODOS os contatos do usuário
+async function deleteAllContacts(userId) {
+  return new Promise((resolve, reject) => {
+    db.run('DELETE FROM contacts WHERE user_id = ?', [userId], function(err) {
+      if (err) reject(err);
+      else resolve(this.changes);
+    });
+  });
+}
+
+// Obter contatos por IDs
+async function getContactsByIds(userId, ids) {
+  return new Promise((resolve, reject) => {
+    if (!ids.length) return resolve([]);
+    const placeholders = ids.map(() => '?').join(',');
+    db.all(
+      `SELECT * FROM contacts WHERE user_id = ? AND id IN (${placeholders})`,
+      [userId, ...ids],
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows || []);
+      }
+    );
+  });
+}
+
+// Obter contatos filtrados (para selecionar por DDD)
+async function getContactsByDDD(userId, ddd) {
+  return new Promise((resolve, reject) => {
+    db.all(
+      'SELECT * FROM contacts WHERE user_id = ? AND ddd = ?',
+      [userId, ddd],
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows || []);
+      }
+    );
+  });
+}
+
+// Obter TODOS os IDs de contatos (com filtros opcionais)
+async function getAllContactIds(userId, { search = '', ddd = '', source = '' } = {}) {
+  return new Promise((resolve, reject) => {
+    let where = 'WHERE user_id = ?';
+    const params = [userId];
+    if (search) {
+      where += ' AND (name LIKE ? OR phone LIKE ?)';
+      params.push('%' + search + '%', '%' + search + '%');
+    }
+    if (ddd) { where += ' AND ddd = ?'; params.push(ddd); }
+    if (source) { where += ' AND source = ?'; params.push(source); }
+
+    db.all(`SELECT id FROM contacts ${where}`, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve((rows || []).map(r => r.id));
+    });
+  });
+}
+
+// ============================================
+// FUNÇÕES DE SUBLISTAS
+// ============================================
+
+async function createSublist(userId, name, contactIds = []) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      'INSERT INTO sublists (user_id, name) VALUES (?, ?)',
+      [userId, name],
+      function(err) {
+        if (err) return reject(err);
+        const sublistId = this.lastID;
+        if (!contactIds.length) return resolve({ id: sublistId, name, memberCount: 0 });
+
+        const stmt = db.prepare('INSERT OR IGNORE INTO sublist_members (sublist_id, contact_id) VALUES (?, ?)');
+        let added = 0;
+        let remaining = contactIds.length;
+        for (const cid of contactIds) {
+          stmt.run([sublistId, cid], function(e) {
+            if (!e && this.changes > 0) added++;
+            remaining--;
+            if (remaining === 0) {
+              stmt.finalize();
+              resolve({ id: sublistId, name, memberCount: added });
+            }
+          });
+        }
+      }
+    );
+  });
+}
+
+async function getSublists(userId) {
+  return new Promise((resolve, reject) => {
+    db.all(
+      `SELECT s.*, COUNT(sm.id) as member_count
+       FROM sublists s
+       LEFT JOIN sublist_members sm ON s.id = sm.sublist_id
+       WHERE s.user_id = ?
+       GROUP BY s.id
+       ORDER BY s.created_at DESC`,
+      [userId],
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows || []);
+      }
+    );
+  });
+}
+
+async function deleteSublist(sublistId, userId) {
+  return new Promise((resolve, reject) => {
+    // Delete members first, then sublist
+    db.run('DELETE FROM sublist_members WHERE sublist_id = ?', [sublistId], (err) => {
+      if (err) return reject(err);
+      db.run('DELETE FROM sublists WHERE id = ? AND user_id = ?', [sublistId, userId], function(err2) {
+        if (err2) reject(err2);
+        else resolve(this.changes);
+      });
+    });
+  });
+}
+
+async function getSublistContacts(sublistId, userId) {
+  return new Promise((resolve, reject) => {
+    db.all(
+      `SELECT c.* FROM contacts c
+       JOIN sublist_members sm ON c.id = sm.contact_id
+       JOIN sublists s ON sm.sublist_id = s.id
+       WHERE sm.sublist_id = ? AND s.user_id = ?
+       ORDER BY c.name ASC, c.phone ASC`,
+      [sublistId, userId],
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows || []);
+      }
+    );
+  });
+}
+
+// ============================================
 // EXPORTS
 // ============================================
 
@@ -731,5 +1023,20 @@ module.exports = {
   saveBotConfig,
   getBotRules,
   addBotRule,
-  deleteBotRule
+  deleteBotRule,
+  // Contacts functions
+  importContacts,
+  getContacts,
+  getContactDDDs,
+  getContactSources,
+  deleteContact,
+  deleteAllContacts,
+  getContactsByIds,
+  getContactsByDDD,
+  getAllContactIds,
+  // Sublists functions
+  createSublist,
+  getSublists,
+  deleteSublist,
+  getSublistContacts
 };

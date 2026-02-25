@@ -1085,7 +1085,7 @@ app.post('/api/disconnect', authenticateToken, async (req, res) => {
 });
 
 // Upload de contatos
-app.post('/api/upload-contacts', authenticateToken, upload.single('file'), (req, res) => {
+app.post('/api/upload-contacts', authenticateToken, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'Nenhum arquivo enviado' });
@@ -1172,14 +1172,276 @@ app.post('/api/upload-contacts', authenticateToken, upload.single('file'), (req,
       }).filter(Boolean);
     }
 
-    contacts = contacts.map(c => String(c).replace(/\D/g, '')).filter(c => c.length >= 10);
+    contacts = contacts.map(c => {
+      const phone = String(typeof c === 'object' ? (c.phone || c.telefone || Object.values(c).find(v => v)) : c).replace(/\D/g, '');
+      return phone;
+    }).filter(c => c.length >= 10);
+
+    // Auto-remove duplicates
+    const beforeDedup = contacts.length;
+    const seen = new Set();
+    contacts = contacts.filter(c => {
+      const norm = c.replace(/^0+/, '');
+      if (seen.has(norm)) return false;
+      seen.add(norm);
+      return true;
+    });
+    const dupsRemoved = beforeDedup - contacts.length;
+
     fs.unlinkSync(filePath);
 
-    console.log(`✅ ${contacts.length} contatos carregados por ${req.user.email}`);
-    res.json({ success: true, contacts });
+    // Para PREMIUM: armazenar contatos no banco
+    if (isPaidPlan(req.user.plan)) {
+      const contactsToStore = contacts.map(phone => ({ phone, name: '' }));
+      await db.importContacts(req.user.id, contactsToStore, 'csv');
+    }
+
+    console.log(`✅ ${contacts.length} contatos carregados por ${req.user.email} (${dupsRemoved} duplicados removidos)`);
+    res.json({ success: true, contacts, duplicatesRemoved: dupsRemoved });
   } catch (error) {
     console.error('❌ Erro ao processar contatos:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== ROTAS DE CONTATOS E SUBLISTAS (PREMIUM) =====
+
+// Colar lista de números
+app.post('/api/contacts/paste', authenticateToken, async (req, res) => {
+  try {
+    const { numbers } = req.body;
+    if (!numbers || !numbers.trim()) {
+      return res.status(400).json({ error: 'Nenhum número fornecido' });
+    }
+
+    // Parse: split por linhas, vírgulas, ponto-e-vírgula, espaços
+    let contacts = numbers.split(/[\n,;]+/).map(n => n.trim().replace(/\D/g, '')).filter(c => c.length >= 10);
+
+    // Auto-remove duplicates
+    const beforeDedup = contacts.length;
+    const seen = new Set();
+    contacts = contacts.filter(c => {
+      const norm = c.replace(/^0+/, '');
+      if (seen.has(norm)) return false;
+      seen.add(norm);
+      return true;
+    });
+    const dupsRemoved = beforeDedup - contacts.length;
+
+    // Para PREMIUM: armazenar no banco
+    if (isPaidPlan(req.user.plan)) {
+      const contactsToStore = contacts.map(phone => ({ phone, name: '' }));
+      await db.importContacts(req.user.id, contactsToStore, 'manual');
+    }
+
+    console.log(`✅ ${contacts.length} contatos colados por ${req.user.email} (${dupsRemoved} duplicados removidos)`);
+    res.json({ success: true, contacts, duplicatesRemoved: dupsRemoved });
+  } catch (error) {
+    console.error('❌ Erro ao processar lista colada:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Listar contatos armazenados (PREMIUM) com filtros e paginação
+app.get('/api/contacts', authenticateToken, async (req, res) => {
+  try {
+    if (!isPaidPlan(req.user.plan)) {
+      return res.status(403).json({ error: 'Gerenciamento de contatos disponível apenas no plano PREMIUM' });
+    }
+    const { search, ddd, source, page = 1, limit = 50 } = req.query;
+    const result = await db.getContacts(req.user.id, {
+      search: search || '',
+      ddd: ddd || '',
+      source: source || '',
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
+    // DDDs e fontes para filtros
+    const ddds = await db.getContactDDDs(req.user.id);
+    const sources = await db.getContactSources(req.user.id);
+    res.json({ success: true, ...result, ddds, sources });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Obter todos os IDs de contatos (para "Selecionar Todos")
+app.get('/api/contacts/all-ids', authenticateToken, async (req, res) => {
+  try {
+    if (!isPaidPlan(req.user.plan)) {
+      return res.status(403).json({ error: 'Recurso PREMIUM' });
+    }
+    const { search, ddd, source } = req.query;
+    const ids = await db.getAllContactIds(req.user.id, { search: search || '', ddd: ddd || '', source: source || '' });
+    res.json({ success: true, ids });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Deletar contato
+app.delete('/api/contacts/:id', authenticateToken, async (req, res) => {
+  try {
+    if (!isPaidPlan(req.user.plan)) {
+      return res.status(403).json({ error: 'Recurso PREMIUM' });
+    }
+    const changes = await db.deleteContact(parseInt(req.params.id), req.user.id);
+    res.json({ success: changes > 0 });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Deletar TODOS os contatos
+app.delete('/api/contacts', authenticateToken, async (req, res) => {
+  try {
+    if (!isPaidPlan(req.user.plan)) {
+      return res.status(403).json({ error: 'Recurso PREMIUM' });
+    }
+    const changes = await db.deleteAllContacts(req.user.id);
+    res.json({ success: true, deleted: changes });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Obter contatos selecionados por IDs (para envio)
+app.post('/api/contacts/by-ids', authenticateToken, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !ids.length) {
+      return res.status(400).json({ error: 'Nenhum ID fornecido' });
+    }
+    const contacts = await db.getContactsByIds(req.user.id, ids);
+    res.json({ success: true, contacts });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== SUBLISTAS =====
+
+// Criar sublista
+app.post('/api/sublists', authenticateToken, async (req, res) => {
+  try {
+    if (!isPaidPlan(req.user.plan)) {
+      return res.status(403).json({ error: 'Sublistas disponíveis apenas no plano PREMIUM' });
+    }
+    const { name, contactIds } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Nome da sublista é obrigatório' });
+    }
+    const sublist = await db.createSublist(req.user.id, name.trim(), contactIds || []);
+    console.log(`📋 Sublista criada: "${name}" com ${sublist.memberCount} contatos | User: ${req.user.email}`);
+    res.json({ success: true, sublist });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Listar sublistas
+app.get('/api/sublists', authenticateToken, async (req, res) => {
+  try {
+    if (!isPaidPlan(req.user.plan)) {
+      return res.status(403).json({ error: 'Recurso PREMIUM' });
+    }
+    const sublists = await db.getSublists(req.user.id);
+    res.json({ success: true, sublists });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Deletar sublista
+app.delete('/api/sublists/:id', authenticateToken, async (req, res) => {
+  try {
+    if (!isPaidPlan(req.user.plan)) {
+      return res.status(403).json({ error: 'Recurso PREMIUM' });
+    }
+    const changes = await db.deleteSublist(parseInt(req.params.id), req.user.id);
+    res.json({ success: changes > 0 });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Obter contatos de uma sublista
+app.get('/api/sublists/:id/contacts', authenticateToken, async (req, res) => {
+  try {
+    if (!isPaidPlan(req.user.plan)) {
+      return res.status(403).json({ error: 'Recurso PREMIUM' });
+    }
+    const contacts = await db.getSublistContacts(parseInt(req.params.id), req.user.id);
+    res.json({ success: true, contacts });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== GOOGLE CONTACTS (PREMIUM) =====
+app.get('/api/google/auth-url', authenticateToken, (req, res) => {
+  if (!isPaidPlan(req.user.plan)) {
+    return res.status(403).json({ error: 'Recurso PREMIUM' });
+  }
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId) {
+    return res.status(501).json({ error: 'Google Contacts não configurado. Configure GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET no .env' });
+  }
+  const redirectUri = (process.env.BASE_URL || `http://localhost:${PORT}`) + '/api/google/callback';
+  const scope = 'https://www.googleapis.com/auth/contacts.readonly';
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent&state=${req.user.id}`;
+  res.json({ success: true, authUrl });
+});
+
+app.get('/api/google/callback', async (req, res) => {
+  try {
+    const { code, state: userId } = req.query;
+    if (!code) return res.status(400).send('Código de autorização não fornecido');
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const redirectUri = (process.env.BASE_URL || `http://localhost:${PORT}`) + '/api/google/callback';
+
+    // Exchange code for tokens
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ code, client_id: clientId, client_secret: clientSecret, redirect_uri: redirectUri, grant_type: 'authorization_code' })
+    });
+    const tokens = await tokenRes.json();
+    if (!tokens.access_token) throw new Error('Falha na autenticação Google');
+
+    // Fetch contacts
+    let allContacts = [];
+    let nextPageToken = '';
+    do {
+      const url = `https://people.googleapis.com/v1/people/me/connections?personFields=names,phoneNumbers&pageSize=1000${nextPageToken ? '&pageToken=' + nextPageToken : ''}`;
+      const contactsRes = await fetch(url, { headers: { Authorization: 'Bearer ' + tokens.access_token } });
+      const data = await contactsRes.json();
+      if (data.connections) {
+        for (const person of data.connections) {
+          const name = person.names?.[0]?.displayName || '';
+          const phones = person.phoneNumbers || [];
+          for (const p of phones) {
+            const phone = String(p.value || '').replace(/\D/g, '');
+            if (phone.length >= 10) {
+              allContacts.push({ name, phone });
+            }
+          }
+        }
+      }
+      nextPageToken = data.nextPageToken || '';
+    } while (nextPageToken);
+
+    // Store in DB
+    const result = await db.importContacts(parseInt(userId), allContacts, 'google');
+    console.log(`📱 Google Contacts: ${result.imported} importados, ${result.skipped} ignorados | User ID: ${userId}`);
+
+    // Redirect back to dashboard
+    res.redirect('/dashboard.html?google_import=success&imported=' + result.imported);
+  } catch (error) {
+    console.error('❌ Google Contacts erro:', error);
+    res.redirect('/dashboard.html?google_import=error&message=' + encodeURIComponent(error.message));
   }
 });
 
