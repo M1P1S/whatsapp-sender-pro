@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WhatsApp Sender PRO</title>
+  <title>WhatsApp Sender PREMIUM</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #f0f2f5; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; height: 100vh; display: flex; flex-direction: column; }
@@ -146,7 +146,7 @@
 <body>
   <!-- NAVBAR -->
   <div class="navbar">
-    <div class="navbar-brand">WhatsApp Sender PRO</div>
+    <div class="navbar-brand">WhatsApp Sender PREMIUM</div>
     <div class="navbar-right">
       <span id="user-name" style="font-size:0.9em;">Carregando...</span>
       <span id="plan-badge" class="plan-badge plan-free">FREE</span>
@@ -177,9 +177,9 @@
     <!-- Tab Bar -->
     <div class="tab-bar">
       <button class="tab-btn active" data-tab="envio" onclick="switchTab('envio')">📤 Envio em Massa</button>
-      <button class="tab-btn" data-tab="chat" onclick="switchTab('chat')" id="tab-btn-chat" style="display:none;">💬 Chat <span class="pro-tag">PRO</span></button>
-      <button class="tab-btn" data-tab="status" onclick="switchTab('status')" id="tab-btn-status" style="display:none;">📸 Status <span class="pro-tag">PRO</span></button>
-      <button class="tab-btn" data-tab="bot" onclick="switchTab('bot')" id="tab-btn-bot" style="display:none;">🤖 Bot <span class="pro-tag">PRO</span></button>
+      <button class="tab-btn" data-tab="chat" onclick="switchTab('chat')" id="tab-btn-chat" style="display:none;">💬 Chat <span class="pro-tag">PREMIUM</span></button>
+      <button class="tab-btn" data-tab="status" onclick="switchTab('status')" id="tab-btn-status" style="display:none;">📸 Status <span class="pro-tag">PREMIUM</span></button>
+      <button class="tab-btn" data-tab="bot" onclick="switchTab('bot')" id="tab-btn-bot" style="display:none;">🤖 Bot <span class="pro-tag">PREMIUM</span></button>
       <button class="tab-btn" data-tab="dash" onclick="switchTab('dash')">📊 Dashboard</button>
     </div>
 
@@ -205,13 +205,20 @@
         <h3>2. Mensagem</h3>
         <textarea id="message" placeholder="Digite sua mensagem aqui..." rows="4"></textarea>
 
+        <div id="variations-section" class="pro-section" style="display:none;">
+          <strong>Variacoes de mensagem (anti-ban)</strong>
+          <p style="font-size:0.8em; color:#888; margin:5px 0 10px;">O sistema envia uma variacao aleatoria para cada contato. Maximo 5.</p>
+          <div id="variations-list"></div>
+          <button type="button" class="btn-test" onclick="addVariation()" id="btn-add-variation" style="margin-top:8px;">+ Adicionar variacao</button>
+        </div>
+
         <h3>3. Midia (opcional)</h3>
         <div id="media-section">
           <input type="file" id="mediaFile" accept="image/*,video/mp4,video/avi,video/mov,video/mkv,video/webm,audio/*,.pdf,.doc,.docx">
           <p style="font-size:0.8em; color:#888; margin-top:5px;">Imagens, Videos, Audios, PDFs, Documentos</p>
         </div>
         <div id="upgrade-notice" style="display:none; background:#fff3cd; border-left:4px solid #ffc107; padding:12px; border-radius:8px; margin-top:10px;">
-          Recurso PRO: Envio de midia disponivel apenas no plano PRO/PREMIUM.
+          Recurso PREMIUM: Envio de midia disponivel apenas no plano PREMIUM.
           <a href="/upgrade.html" style="color:#0066cc; font-weight:bold;">Fazer upgrade</a>
         </div>
 
@@ -222,6 +229,18 @@
             <div style="flex:1;"><label style="font-size:0.85em; color:#666;">Maximo (s):</label><input type="number" id="maxInterval" value="4" min="1" max="60"></div>
           </div>
           <p style="font-size:0.8em; color:#888; margin-top:5px;">Recomendado: 2-4 segundos</p>
+        </div>
+
+        <div id="long-pause-section" class="pro-section" style="display:none;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="longPauseEnabled" style="width:18px; height:18px;">
+            <strong>Pausas longas (anti-ban)</strong>
+          </label>
+          <div id="long-pause-inputs" style="display:flex; gap:15px; margin-top:8px;">
+            <div style="flex:1;"><label style="font-size:0.85em; color:#666;">A cada X msgs:</label><input type="number" id="pauseEvery" value="20" min="5" max="100"></div>
+            <div style="flex:1;"><label style="font-size:0.85em; color:#666;">Pausar por (s):</label><input type="number" id="pauseDuration" value="30" min="10" max="300"></div>
+          </div>
+          <p style="font-size:0.8em; color:#888; margin-top:5px;">Ex: pausa de 30s a cada 20 mensagens</p>
         </div>
 
         <div id="filter-section" class="pro-section" style="display:none;">
@@ -374,10 +393,13 @@
     <!-- TAB: DASHBOARD -->
     <div id="tab-dash" class="tab-content">
       <div class="dash-container">
+        <!-- Expiration Banner -->
+        <div id="expiration-banner" style="display:none; padding:15px 20px; border-radius:12px; margin-bottom:20px; align-items:center; justify-content:space-between;"></div>
+
         <!-- Upgrade Banner -->
         <div id="upgrade-banner" class="upgrade-banner" style="display:none;">
           <div>
-            <h3>Faca Upgrade para PRO</h3>
+            <h3>Faca Upgrade para PREMIUM</h3>
             <p style="font-size:0.9em;">Envios ilimitados, midia, chat, status, bot e agendamentos!</p>
           </div>
           <button onclick="window.location.href='upgrade.html'">Fazer Upgrade</button>
@@ -444,7 +466,7 @@
 
     if (!token) { window.location.href = '/auth.html'; }
 
-    function isPro() { return userPlan === 'PRO' || userPlan === 'PREMIUM'; }
+    function isPremium() { return userPlan === 'PREMIUM'; }
 
     // ===== AUTH HEADER HELPER =====
     function authHeaders(extra) {
@@ -477,14 +499,15 @@
         userPlan = data.user.plan;
         document.getElementById('user-name').textContent = data.user.name || 'Usuario';
         const badge = document.getElementById('plan-badge');
-        if (isPro()) {
-          badge.textContent = userPlan;
+        if (isPremium()) {
+          badge.textContent = 'PREMIUM';
           badge.className = 'plan-badge plan-pro';
         } else {
           badge.textContent = 'FREE';
           badge.className = 'plan-badge plan-free';
         }
         updateProVisibility();
+        checkExpiration(data.user);
       } catch (err) {
         console.error('[USER] Error:', err);
         localStorage.removeItem(TOKEN_KEY);
@@ -493,15 +516,38 @@
       }
     }
 
+    function checkExpiration(user) {
+      const banner = document.getElementById('expiration-banner');
+      if (!banner || !user.plan_expires_at || user.plan === 'FREE') { banner.style.display = 'none'; return; }
+      const expires = new Date(user.plan_expires_at);
+      const now = new Date();
+      const diffMs = expires - now;
+      const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      if (diffDays <= 0) {
+        banner.style.display = 'flex';
+        banner.style.background = 'linear-gradient(135deg, #f44336, #d32f2f)';
+        banner.style.color = 'white';
+        banner.innerHTML = '<div><strong>Seu plano PREMIUM expirou!</strong><p style="font-size:0.9em; margin-top:4px;">Renove agora para continuar usando recursos ilimitados.</p></div><button onclick="window.location.href=\'upgrade.html\'" style="background:white; color:#d32f2f; border:none; padding:10px 20px; border-radius:8px; font-weight:bold; cursor:pointer; white-space:nowrap;">Renovar Agora</button>';
+      } else if (diffDays <= 7) {
+        banner.style.display = 'flex';
+        banner.style.background = diffDays <= 1 ? 'linear-gradient(135deg, #ff9800, #f57c00)' : 'linear-gradient(135deg, #FFD700, #FFA500)';
+        banner.style.color = '#333';
+        const txt = diffDays === 1 ? 'Seu plano PREMIUM expira amanha!' : 'Seu plano PREMIUM expira em ' + diffDays + ' dias';
+        banner.innerHTML = '<div><strong>' + txt + '</strong><p style="font-size:0.9em; margin-top:4px;">Renove para nao perder acesso aos recursos.</p></div><button onclick="window.location.href=\'upgrade.html\'" style="background:#333; color:white; border:none; padding:10px 20px; border-radius:8px; font-weight:bold; cursor:pointer; white-space:nowrap;">Renovar</button>';
+      } else {
+        banner.style.display = 'none';
+      }
+    }
+
     function updateProVisibility() {
-      const pro = isPro();
+      const pro = isPremium();
       // Tab buttons
       ['tab-btn-chat','tab-btn-status','tab-btn-bot'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = pro ? 'flex' : 'none';
       });
       // Envio sections
-      ['interval-section','filter-section','schedule-section'].forEach(id => {
+      ['interval-section','long-pause-section','filter-section','schedule-section','variations-section'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = pro ? 'block' : 'none';
       });
@@ -510,7 +556,7 @@
         const mediaFile = document.getElementById('mediaFile');
         if (mediaFile) {
           mediaFile.addEventListener('click', function(e) {
-            if (!isPro()) {
+            if (!isPremium()) {
               e.preventDefault();
               document.getElementById('upgrade-notice').style.display = 'block';
               setTimeout(() => { document.getElementById('upgrade-notice').style.display = 'none'; }, 4000);
@@ -609,7 +655,7 @@
         if (data.contacts && data.contacts.length > 0) {
           contacts = data.contacts;
           // Remove duplicates if checked
-          if (isPro() && document.getElementById('remove-duplicates')?.checked) {
+          if (isPremium() && document.getElementById('remove-duplicates')?.checked) {
             contacts = removeDuplicates(contacts);
           }
           const preview = document.getElementById('envio-contacts-preview');
@@ -644,13 +690,42 @@
       } catch (err) { result.innerHTML = '<span style="color:#dc3545;">Erro: ' + err.message + '</span>'; }
     }
 
+    // ===== VARIACOES DE MENSAGEM =====
+    let variationCount = 0;
+    function addVariation() {
+      if (variationCount >= 5) { alert('Maximo de 5 variacoes!'); return; }
+      variationCount++;
+      const container = document.getElementById('variations-list');
+      const div = document.createElement('div');
+      div.id = 'variation-' + variationCount;
+      div.style.cssText = 'display:flex; gap:8px; margin-bottom:8px; align-items:flex-start;';
+      div.innerHTML = '<textarea placeholder="Variacao ' + variationCount + '..." rows="2" class="variation-input" style="flex:1; padding:10px; border:2px solid #e0e0e0; border-radius:8px; font-size:0.95em; resize:vertical;"></textarea><button type="button" onclick="removeVariation(\'' + div.id + '\')" style="background:#f44336; color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:0.85em;">X</button>';
+      container.appendChild(div);
+      if (variationCount >= 5) document.getElementById('btn-add-variation').style.display = 'none';
+    }
+    function removeVariation(id) {
+      const el = document.getElementById(id);
+      if (el) { el.remove(); variationCount--; }
+      document.getElementById('btn-add-variation').style.display = 'block';
+    }
+    function getVariations() {
+      const inputs = document.querySelectorAll('.variation-input');
+      const variations = [];
+      inputs.forEach(input => {
+        const v = input.value.trim();
+        if (v) variations.push(v);
+      });
+      return variations;
+    }
+
     async function sendMessages() {
       const message = document.getElementById('message').value.trim();
       const mediaFile = document.getElementById('mediaFile').files[0];
+      const variations = isPremium() ? getVariations() : [];
 
       if (!contacts.length) { alert('Carregue os contatos primeiro!'); return; }
-      if (!message && !mediaFile) { alert('Digite uma mensagem ou selecione uma midia!'); return; }
-      if (mediaFile && !isPro()) { alert('Envio de midia disponivel apenas no plano PRO/PREMIUM'); return; }
+      if (!message && !mediaFile && !variations.length) { alert('Digite uma mensagem ou selecione uma midia!'); return; }
+      if (mediaFile && !isPremium()) { alert('Envio de midia disponivel apenas no plano PREMIUM'); return; }
       if (!confirm('Enviar para ' + contacts.length + ' contatos?')) return;
 
       const progress = document.getElementById('envio-progress');
@@ -661,9 +736,18 @@
       formData.append('contacts', JSON.stringify(contacts));
       formData.append('message', message);
       if (mediaFile) formData.append('media', mediaFile);
-      if (isPro()) {
+      if (isPremium()) {
         formData.append('minInterval', document.getElementById('minInterval')?.value || '2');
         formData.append('maxInterval', document.getElementById('maxInterval')?.value || '4');
+        if (variations.length > 0) {
+          formData.append('variations', JSON.stringify(variations));
+        }
+        // Pausas longas
+        const longPauseEnabled = document.getElementById('longPauseEnabled')?.checked;
+        if (longPauseEnabled) {
+          formData.append('pauseEvery', document.getElementById('pauseEvery')?.value || '20');
+          formData.append('pauseDuration', document.getElementById('pauseDuration')?.value || '30');
+        }
       }
 
       try {
@@ -953,7 +1037,7 @@
       try {
         const res = await fetch(API_URL + '/api/plan/info', { headers: authHeaders() });
         const data = await res.json();
-        const pro = isPro();
+        const pro = isPremium();
         document.getElementById('today-sends').textContent = data.todaySends || 0;
         if (pro) {
           document.getElementById('remaining-title').textContent = 'Envios';
@@ -992,7 +1076,7 @@
     }
 
     async function loadSchedules() {
-      if (!isPro()) return;
+      if (!isPremium()) return;
       try {
         const res = await fetch(API_URL + '/api/schedules', { headers: authHeaders() });
         if (!res.ok) return;

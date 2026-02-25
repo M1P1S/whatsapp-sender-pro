@@ -45,7 +45,7 @@ async function loadUserInfo() {
     planName.textContent = planData.plan;
     
     // ⭐ ITEM 6: Lógica ILIMITADO
-    if (planData.plan === 'PRO' || planData.plan === 'PREMIUM') {
+    if (planData.plan === 'PREMIUM') {
       sendsInfo.innerHTML = '✨ Envios <strong>ILIMITADOS</strong>';
       sendsInfo.style.fontSize = '1.1em';
       sendsInfo.style.fontWeight = 'bold';
@@ -57,7 +57,7 @@ async function loadUserInfo() {
       console.log('✅ Item 6: Mostrar limite FREE');
     }
     
-    if (planData.plan === 'PRO' || planData.plan === 'PREMIUM') {
+    if (planData.plan === 'PREMIUM') {
       planInfo.classList.add('pro');
       document.getElementById('upgrade-button').style.display = 'none';
       
@@ -82,7 +82,7 @@ async function loadUserInfo() {
       mediaContainer.classList.add('disabled');
       const badge = document.createElement('span');
       badge.className = 'pro-badge';
-      badge.textContent = '💎 PRO';
+      badge.textContent = '💎 PREMIUM';
       mediaContainer.appendChild(badge);
       
       // Mostra aviso ao tentar adicionar mídia
@@ -262,7 +262,7 @@ async function checkConnection() {
       if (mainSection) mainSection.style.display = 'block';
       if (disconnectBtn) disconnectBtn.style.display = 'inline-block';
       const scheduleSection = document.getElementById('schedule-section');
-      if (scheduleSection && (userPlan === 'PRO' || userPlan === 'PREMIUM')) {
+      if (scheduleSection && (userPlan === 'PREMIUM')) {
         scheduleSection.style.display = 'block';
       }
     } else if (data.authenticated && !data.qr) {
@@ -435,7 +435,7 @@ async function sendMessages() {
   
   // Verifica se está tentando enviar mídia no plano FREE
   if (mediaFile && userPlan === 'FREE') {
-    alert('⚠️ Envio de mídia disponível apenas no plano PRO!\n\nFaça upgrade para enviar imagens e vídeos.');
+    alert('⚠️ Envio de mídia disponível apenas no plano PREMIUM!\n\nFaça upgrade para enviar imagens e vídeos.');
     document.getElementById('upgrade-notice').classList.add('show');
     return;
   }
@@ -490,7 +490,7 @@ async function sendMessages() {
       progressEl.innerHTML = `
         <div style="text-align: center; color: #ff9800;">
           <h3>⚠️ ${data.error}</h3>
-          ${data.needsUpgrade ? '<a href="/upgrade.html" style="color: #0066cc; font-weight: bold; text-decoration: underline;">Fazer upgrade para PRO →</a>' : ''}
+          ${data.needsUpgrade ? '<a href="/upgrade.html" style="color: #0066cc; font-weight: bold; text-decoration: underline;">Fazer upgrade para PREMIUM →</a>' : ''}
           <p style="margin-top: 15px;">Restam: ${data.remaining} mensagens hoje</p>
         </div>
       `;
@@ -540,8 +540,8 @@ async function sendMessages() {
 
 // Agendar envio (PRO)
 async function scheduleMessages() {
-  if (userPlan !== 'PRO' && userPlan !== 'PREMIUM') {
-    alert('⚠️ Agendamento disponível apenas no plano PRO!');
+  if (userPlan !== 'PREMIUM') {
+    alert('⚠️ Agendamento disponível apenas no plano PREMIUM!');
     window.location.href = '/upgrade.html';
     return;
   }

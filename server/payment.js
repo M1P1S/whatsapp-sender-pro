@@ -99,8 +99,8 @@ async function createPayment(userId, userEmail, userName, planType, amount) {
     const customer = await getOrCreateCustomer(userEmail, userName, userId);
     const months = planType === 'yearly' ? 12 : 1;
     const description = planType === 'yearly' 
-      ? 'WhatsApp Sender PRO - Plano Anual'
-      : 'WhatsApp Sender PRO - Plano Mensal';
+      ? 'WhatsApp Sender PREMIUM - Plano Anual'
+      : 'WhatsApp Sender PREMIUM - Plano Mensal';
 
     const dueDate = new Date();
     dueDate.setDate(dueDate.getDate() + 3);
@@ -144,8 +144,8 @@ async function createPixCharge(userId, userEmail, userName, planType, amount) {
     const customer = await getOrCreateCustomer(userEmail, userName, userId);
     const months = planType === 'yearly' ? 12 : 1;
     const description = planType === 'yearly' 
-      ? 'WhatsApp Sender PRO - Plano Anual'
-      : 'WhatsApp Sender PRO - Plano Mensal';
+      ? 'WhatsApp Sender PREMIUM - Plano Anual'
+      : 'WhatsApp Sender PREMIUM - Plano Mensal';
 
     const dueDate = new Date();
     const dueDateStr = dueDate.toISOString().split('T')[0];

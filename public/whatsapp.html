@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chat WhatsApp - PRO</title>
+  <title>Chat WhatsApp - PREMIUM</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -325,8 +325,8 @@
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await res.json();
-        if (!res.ok || (data.user.plan !== 'PRO' && data.user.plan !== 'PREMIUM')) {
-          alert('Chat disponível apenas para plano PRO/PREMIUM');
+        if (!res.ok || data.user.plan !== 'PREMIUM') {
+          alert('Chat disponível apenas para plano PREMIUM');
           window.location.href = '/dashboard.html';
         }
       } catch (err) {

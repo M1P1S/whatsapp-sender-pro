@@ -236,17 +236,17 @@ function verifyPassword(plainPassword, hashedPassword) {
 }
 
 // Atualizar plano do usuário
-async function upgradeToPro(userId, months = 1) {
+async function upgradeToPremium(userId, months = 1) {
   return new Promise((resolve, reject) => {
     const expiresAt = new Date();
     expiresAt.setMonth(expiresAt.getMonth() + months);
-    
+
     db.run(
       'UPDATE users SET plan = ?, plan_expires_at = ? WHERE id = ?',
-      ['PRO', expiresAt.toISOString(), userId],
+      ['PREMIUM', expiresAt.toISOString(), userId],
       (err) => {
         if (err) reject(err);
-        else resolve({ plan: 'PRO', expiresAt });
+        else resolve({ plan: 'PREMIUM', expiresAt });
       }
     );
   });
@@ -327,8 +327,8 @@ async function incrementSends(userId, count) {
 async function canSend(userId, count, hasMedia = false) {
   const user = await getUserById(userId);
   
-  // Verifica se plano PRO/PREMIUM está ativo
-  if (user.plan === 'PRO' || user.plan === 'PREMIUM') {
+  // Verifica se plano PREMIUM está ativo
+  if (user.plan === 'PREMIUM') {
     if (user.plan_expires_at) {
       const expiresAt = new Date(user.plan_expires_at);
       if (expiresAt < new Date()) {
@@ -361,7 +361,7 @@ async function canSend(userId, count, hasMedia = false) {
       unlimited: false,
       plan: 'FREE',
       canSendMedia: false,
-      message: 'Upgrade para PRO para enviar imagens e vídeos'
+      message: 'Upgrade para PREMIUM para enviar imagens e vídeos'
     };
   }
   
@@ -708,7 +708,7 @@ module.exports = {
   getUserByEmail,
   getUserById,
   verifyPassword,
-  upgradeToPro,
+  upgradeToPremium,
   getTodaySends,
   incrementSends,
   canSend,
